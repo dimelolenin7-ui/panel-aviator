@@ -7,7 +7,7 @@ import pytesseract
 
 st.set_page_config(page_title="Analítica Cuantitativa & Simulación - Aviator", layout="wide")
 
-# Inicialización de variables de sesión
+# Inicialización de variables
 if 'balance' not in st.session_state:
     st.session_state.balance = 50000.0
 if 'historial_balance' not in st.session_state:
@@ -20,7 +20,7 @@ riesgo_pct = st.sidebar.slider("Riesgo por ronda (%):", min_value=0.5, max_value
 stop_loss_pct = st.sidebar.slider("Stop Loss (% pérdida):", min_value=5, max_value=50, value=20)
 take_profit_pct = st.sidebar.slider("Take Profit (% ganancia):", min_value=10, max_value=100, value=25)
 
-if st.sidebar.button("Reiniciar Banca al Inicial"):
+if st.sidebar.button("Reiniciar Banca"):
     st.session_state.balance = float(banca_inicial)
     st.session_state.historial_balance = [float(banca_inicial)]
     st.rerun()
@@ -29,10 +29,10 @@ piso_sl = banca_inicial * (1 - stop_loss_pct / 100)
 techo_tp = banca_inicial * (1 + take_profit_pct / 100)
 apuesta_sug = st.session_state.balance * (riesgo_pct / 100)
 
-tabs = st.tabs(["🟢 Panel de Juego en Vivo", "📷 Escanear Historial", "🧪 Simulador Monte Carlo (500 Rondas)"])
+tabs = st.tabs(["🟢 Panel en Vivo", "📷 Escáner y Semáforo de Entrada", "🧪 Monte Carlo"])
 
 # ==========================================
-# PESTAÑA 1: PANEL EN VIVO COMPLETO
+# PESTAÑA 1: PANEL EN VIVO
 # ==========================================
 with tabs[0]:
     st.title("✈️ Analítica Cuantitativa & Simulación - Aviator")
@@ -58,13 +58,12 @@ with tabs[0]:
 
     st.markdown("---")
 
-    # Alertas de límites
     if st.session_state.balance <= piso_sl:
-        st.error("🛑 ALERTA DE STOP LOSS: Has alcanzado tu límite de pérdida. Detén la sesión.")
+        st.error("🛑 STOP LOSS ALCANZADO: Cierra la sesión inmediatamente.")
     elif st.session_state.balance >= techo_tp:
-        st.success("🎯 ALERTA DE TAKE PROFIT: Has alcanzado tu meta de beneficio. Retira y finaliza.")
+        st.success("🎯 TAKE PROFIT ALCANZADO: Retira y finaliza la sesión.")
 
-    # Calculadora de Entrada en Vivo
+    # Calculadora en Vivo
     st.subheader("🎯 Calculadora de Entrada en Vivo")
     objetivo_x = st.slider("Objetivo de retiro planeado (x):", min_value=1.05, max_value=5.00, value=1.40, step=0.01)
     
@@ -72,12 +71,12 @@ with tabs[0]:
     riesgo_crash = 100.0 - prob_exito
 
     c_prob1, c_prob2 = st.columns(2)
-    c_prob1.metric("Probabilidad de éxito", f"{prob_exito:.2f}%")
+    c_prob1.metric("Probabilidad teórica", f"{prob_exito:.2f}%")
     c_prob2.metric("Riesgo de crash previo", f"{riesgo_crash:.2f}%")
 
     st.markdown("---")
     
-    # Registro de Ronda en Vivo
+    # Registro de rondas
     st.subheader("📝 Registrar Resultado de Ronda")
     col_reg1, col_reg2, col_reg3 = st.columns([2, 1, 1])
     
@@ -86,33 +85,33 @@ with tabs[0]:
     with col_reg2:
         st.write("")
         st.write("")
-        if st.button("✅ Ronda Ganada", use_container_width=True):
-            ganancia_neta = apuesta_real * (objetivo_x - 1.0)
-            st.session_state.balance += ganancia_neta
+        if st.button("✅ Ganada", use_container_width=True):
+            st.session_state.balance += apuesta_real * (objetivo_x - 1.0)
             st.session_state.historial_balance.append(st.session_state.balance)
             st.rerun()
     with col_reg3:
         st.write("")
         st.write("")
-        if st.button("❌ Ronda Perdida", use_container_width=True):
+        if st.button("❌ Perdida", use_container_width=True):
             st.session_state.balance -= apuesta_real
             st.session_state.historial_balance.append(st.session_state.balance)
             st.rerun()
 
     if len(st.session_state.historial_balance) > 1:
-        st.caption("Evolución del Balance en Vivo")
         st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
 
 # ==========================================
-# PESTAÑA 2: ESCANEAR HISTORIAL (OCR)
+# PESTAÑA 2: ESCÁNER Y SEMÁFORO ENTRADA
 # ==========================================
 with tabs[1]:
-    st.subheader("📷 Detección de Multiplicadores y Rachas")
-    uploaded_file = st.file_uploader("Subir captura del historial de Aviator", type=["png", "jpg", "jpeg"])
+    st.subheader("📷 Semáforo de Decisión según Historial")
+    st.write("Sube la captura recortada del historial de rondas para recibir la señal del próximo turno.")
+    
+    uploaded_file = st.file_uploader("Subir captura de pantalla", type=["png", "jpg", "jpeg"])
     
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Captura cargada", use_container_width=True)
+        st.image(image, caption="Historial cargado", use_container_width=True)
         
         texto_extraido = pytesseract.image_to_string(image)
         matches = re.findall(r"(\d+[\.,]\d+)x?", texto_extraido)
@@ -124,40 +123,44 @@ with tabs[1]:
                 multiplicadores.append(val)
         
         if multiplicadores:
-            st.success(f"Se detectaron {len(multiplicadores)} multiplicadores en el historial.")
-            st.write(f"**Valores leídos:** {multiplicadores}")
-            
+            total_rondas = len(multiplicadores)
             exitos_140 = sum(1 for x in multiplicadores if x >= 1.40)
-            tasa_exito = (exitos_140 / len(multiplicadores)) * 100
+            tasa_exito = (exitos_140 / total_rondas) * 100
             
-            ultimos_5 = multiplicadores[:5] if len(multiplicadores) >= 5 else multiplicadores
-            crashes_bajos_5 = sum(1 for x in ultimos_5 if x < 1.40)
+            # Los últimos tiros del historial
+            ultimos_3 = multiplicadores[-3:] if len(multiplicadores) >= 3 else multiplicadores
+            crashes_ultimos_3 = sum(1 for x in ultimos_3 if x < 1.40)
             
-            col_a, col_b = st.columns(2)
-            col_a.metric("Frecuencia > 1.40x en historial", f"{tasa_exito:.1f}%", f"{exitos_140}/{len(multiplicadores)}")
-            col_b.metric("Crashes < 1.40x en últimos 5", f"{crashes_bajos_5} de {len(ultimos_5)}")
+            st.markdown("---")
             
-            if crashes_bajos_5 >= 3:
-                st.warning("⚠️ Racha Fría Activa: Alta concentración de cortes antes de 1.40x. Espera 2 rondas neutras.")
-            elif crashes_bajos_5 == 0:
-                st.info("🟣 Racha Morada / Alta Densidad: El flujo reciente supera 1.40x consecutivamente.")
+            # LÓGICA DEL SEMÁFORO
+            if crashes_ultimos_3 >= 2 or tasa_exito < 65.0:
+                st.error("🔴 NO APOSTAR (ALTO RIESGO)")
+                st.write(f"**Razón:** Concentración de caídas tempranas ({crashes_ultimos_3} de los últimos 3 tiros cayeron antes de 1.40x). Espera 1 o 2 tiros neutros.")
             else:
-                st.success("✅ Entorno Estable: Frecuencia dentro del promedio normal.")
+                st.success("🟢 SEÑAL VERDE: ENTRADA FAVORABLE A 1.40x")
+                st.write(f"**Razón:** Racha estable. El {tasa_exito:.1f}% del historial superó el 1.40x y no hay cortes tempranos consecutivos.")
+
+            st.markdown("---")
+            col_m1, col_m2 = st.columns(2)
+            col_m1.metric("Frecuencia > 1.40x", f"{tasa_exito:.1f}%", f"{exitos_140}/{total_rondas}")
+            col_m2.metric("Fallos < 1.40x en últimos 3 tiros", f"{crashes_ultimos_3} de {len(ultimos_3)}")
+            st.caption(f"Valores leídos: {multiplicadores}")
         else:
-            st.warning("No se detectaron números legibles. Sube una imagen más clara o recortada.")
+            st.warning("No se detectaron multiplicadores legibles. Asegúrate de recortar solo la franja superior de números.")
 
 # ==========================================
 # PESTAÑA 3: MONTE CARLO
 # ==========================================
 with tabs[2]:
-    st.subheader("🧪 Simulación de Monte Carlo (Generador Real Aviator - RTP 97%)")
+    st.subheader("🧪 Simulación Monte Carlo (500 Rondas)")
     banca_sim_input = st.number_input("Banca para simular ($):", value=float(banca_inicial), step=1000.0)
-    rondas_sim = st.slider("Número de rondas:", min_value=10, max_value=500, value=100, step=10)
-    cashout_sim = st.slider("Objetivo de Auto Cash-out (x):", min_value=1.05, max_value=5.00, value=1.40, step=0.01)
+    rondas_sim = st.slider("Número de rondas:", min_value=10, max_value=500, value=50, step=10)
+    cashout_sim = st.slider("Objetivo Cash-out (x):", min_value=1.05, max_value=5.00, value=1.40, step=0.01)
     
     estrategia = st.selectbox(
         "Estrategia de apuesta:",
-        ["Monto Fijo (Flat Betting)", "Porcentaje Fijo de Banca (Compounding)", "Martingala (Doblar tras fallo)"]
+        ["Porcentaje Fijo de Banca (Compounding)", "Monto Fijo (Flat Betting)", "Martingala (Doblar tras fallo)"]
     )
     
     if st.button("🚀 Ejecutar Simulación"):
@@ -170,10 +173,8 @@ with tabs[2]:
             if banca_actual <= 0:
                 break
             
-            # Generador estándar Provably Fair (RTP 97%)
             r = np.random.uniform(0, 1)
             crash = max(1.0, np.floor((0.97 / (1.0 - r)) * 100) / 100)
-            
             monto_a_jugar = min(apuesta_actual, banca_actual)
             
             if crash >= cashout_sim:
@@ -192,5 +193,5 @@ with tabs[2]:
             registro.append(banca_actual)
             
         st.line_chart(pd.DataFrame({"Banca": registro}))
-        st.write(f"Resultado final tras la simulación: **${banca_actual:,.2f}**")
+        st.write(f"Resultado final: **${banca_actual:,.2f}**")
         
