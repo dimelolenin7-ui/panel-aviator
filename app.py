@@ -29,13 +29,19 @@ piso_sl = banca_inicial * (1 - stop_loss_pct / 100)
 techo_tp = banca_inicial * (1 + take_profit_pct / 100)
 apuesta_sug = st.session_state.balance * (riesgo_pct / 100)
 
-tabs = st.tabs(["🟢 Panel en Vivo", "📷 Escáner y Semáforo de Entrada", "🧪 Monte Carlo"])
+# Pestañas de navegación
+tabs = st.tabs([
+    "🟢 Apuesta Simple", 
+    "🛡️ Doble Apuesta (Cobertura)", 
+    "📷 Escáner y Semáforos", 
+    "🧪 Monte Carlo"
+])
 
 # ==========================================
-# PESTAÑA 1: PANEL EN VIVO
+# PESTAÑA 1: APUESTA SIMPLE EN VIVO
 # ==========================================
 with tabs[0]:
-    st.title("✈️ Analítica Cuantitativa & Simulación - Aviator")
+    st.title("✈️ Modo Apuesta Simple")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -63,8 +69,7 @@ with tabs[0]:
     elif st.session_state.balance >= techo_tp:
         st.success("🎯 TAKE PROFIT ALCANZADO: Retira y finaliza la sesión.")
 
-    # Calculadora en Vivo
-    st.subheader("🎯 Calculadora de Entrada en Vivo")
+    st.subheader("🎯 Calculadora Simple en Vivo")
     objetivo_x = st.slider("Objetivo de retiro planeado (x):", min_value=1.05, max_value=5.00, value=1.40, step=0.01)
     
     prob_exito = (0.97 / objetivo_x) * 100
@@ -75,24 +80,22 @@ with tabs[0]:
     c_prob2.metric("Riesgo de crash previo", f"{riesgo_crash:.2f}%")
 
     st.markdown("---")
-    
-    # Registro de rondas
-    st.subheader("📝 Registrar Resultado de Ronda")
+    st.subheader("📝 Registrar Ronda Simple")
     col_reg1, col_reg2, col_reg3 = st.columns([2, 1, 1])
     
     with col_reg1:
-        apuesta_real = st.number_input("Monto apostado ($):", value=float(round(apuesta_sug, 2)), step=10.0)
+        apuesta_real = st.number_input("Monto apostado ($):", value=float(round(apuesta_sug, 2)), step=10.0, key="apuesta_simple_input")
     with col_reg2:
         st.write("")
         st.write("")
-        if st.button("✅ Ganada", use_container_width=True):
+        if st.button("✅ Ganada", use_container_width=True, key="btn_gana_simple"):
             st.session_state.balance += apuesta_real * (objetivo_x - 1.0)
             st.session_state.historial_balance.append(st.session_state.balance)
             st.rerun()
     with col_reg3:
         st.write("")
         st.write("")
-        if st.button("❌ Perdida", use_container_width=True):
+        if st.button("❌ Perdida", use_container_width=True, key="btn_pierde_simple"):
             st.session_state.balance -= apuesta_real
             st.session_state.historial_balance.append(st.session_state.balance)
             st.rerun()
@@ -101,13 +104,67 @@ with tabs[0]:
         st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
 
 # ==========================================
-# PESTAÑA 2: ESCÁNER Y SEMÁFORO ENTRADA
+# PESTAÑA 2: DOBLE APUESTA CON COBERTURA
 # ==========================================
 with tabs[1]:
-    st.subheader("📷 Semáforo de Decisión según Historial")
-    st.write("Sube la captura recortada del historial de rondas para recibir la señal del próximo turno.")
+    st.title("🛡️ Estrategia de Doble Apuesta Simultánea")
+    st.write("Coloca dos apuestas simultáneas en el casino en proporción **2 a 1**. La Casilla 1 absorbe la pérdida de la Casilla 2 si no llega a 2.00x.")
+
+    col_d1, col_d2 = st.columns(2)
+    col_d1.metric("Banca Actual", f"${st.session_state.balance:,.2f} COP")
     
-    uploaded_file = st.file_uploader("Subir captura de pantalla", type=["png", "jpg", "jpeg"])
+    # Cálculo de apuestas 2:1
+    apuesta_doble_total = st.session_state.balance * (riesgo_pct / 100)
+    # 2/3 para cobertura (1.50x), 1/3 para ataque (2.00x)
+    monto_cobertura = round((apuesta_doble_total * (2.0 / 3.0)), 2)
+    monto_ataque = round((apuesta_doble_total * (1.0 / 3.0)), 2)
+
+    st.markdown("### 📋 Configuración para el Casino")
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.info(f"**Casilla 1 (Cobertura):**\n- Monto: **${monto_cobertura:,.2f} COP**\n- Auto Cash-out: **1.50x**\n- Ganancia neta si cobra: **+${monto_cobertura * 0.50:,.2f} COP**")
+    with col_c2:
+        st.success(f"**Casilla 2 (Beneficio):**\n- Monto: **${monto_ataque:,.2f} COP**\n- Auto Cash-out: **2.00x**\n- Ganancia neta si cobra: **+${monto_ataque * 1.00:,.2f} COP**")
+
+    st.markdown("---")
+    st.subheader("📝 Registrar Resultado de la Ronda Doble")
+    
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    
+    with col_btn1:
+        if st.button("🏆 Superó 2.00x (Ambas Ganadas)", use_container_width=True):
+            # Ganan ambas: Casilla 1 da 0.5x, Casilla 2 da 1.0x
+            ganancia = (monto_cobertura * 0.50) + (monto_ataque * 1.00)
+            st.session_state.balance += ganancia
+            st.session_state.historial_balance.append(st.session_state.balance)
+            st.rerun()
+            
+    with col_btn2:
+        if st.button("🛡️ Entre 1.50x y 1.99x (Tablas / $0)", use_container_width=True):
+            # Casilla 1 gana lo que Casilla 2 pierde
+            st.session_state.historial_balance.append(st.session_state.balance)
+            st.rerun()
+            
+    with col_btn3:
+        if st.button("💥 Menor a 1.50x (Pérdida Total)", use_container_width=True):
+            # Pierden ambas casillas
+            perdida = monto_cobertura + monto_ataque
+            st.session_state.balance -= perdida
+            st.session_state.historial_balance.append(st.session_state.balance)
+            st.rerun()
+
+    if len(st.session_state.historial_balance) > 1:
+        st.caption("Evolución de la Banca")
+        st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
+
+# ==========================================
+# PESTAÑA 3: ESCÁNER Y SEMÁFOROS
+# ==========================================
+with tabs[2]:
+    st.subheader("📷 Semáforos de Entrada Inteligentes")
+    st.write("Sube la captura del historial de Aviator para evaluar las condiciones de entrada.")
+    
+    uploaded_file = st.file_uploader("Subir captura del historial", type=["png", "jpg", "jpeg"])
     
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
@@ -125,34 +182,54 @@ with tabs[1]:
         if multiplicadores:
             total_rondas = len(multiplicadores)
             exitos_140 = sum(1 for x in multiplicadores if x >= 1.40)
-            tasa_exito = (exitos_140 / total_rondas) * 100
+            tasa_140 = (exitos_140 / total_rondas) * 100
             
-            # Los últimos tiros del historial
+            exitos_150 = sum(1 for x in multiplicadores if x >= 1.50)
+            tasa_150 = (exitos_150 / total_rondas) * 100
+            
+            exitos_200 = sum(1 for x in multiplicadores if x >= 2.00)
+            tasa_200 = (exitos_200 / total_rondas) * 100
+            
             ultimos_3 = multiplicadores[-3:] if len(multiplicadores) >= 3 else multiplicadores
             crashes_ultimos_3 = sum(1 for x in ultimos_3 if x < 1.40)
-            
-            st.markdown("---")
-            
-            # LÓGICA DEL SEMÁFORO
-            if crashes_ultimos_3 >= 2 or tasa_exito < 65.0:
-                st.error("🔴 NO APOSTAR (ALTO RIESGO)")
-                st.write(f"**Razón:** Concentración de caídas tempranas ({crashes_ultimos_3} de los últimos 3 tiros cayeron antes de 1.40x). Espera 1 o 2 tiros neutros.")
-            else:
-                st.success("🟢 SEÑAL VERDE: ENTRADA FAVORABLE A 1.40x")
-                st.write(f"**Razón:** Racha estable. El {tasa_exito:.1f}% del historial superó el 1.40x y no hay cortes tempranos consecutivos.")
+            crashes_150_ultimos_3 = sum(1 for x in ultimos_3 if x < 1.50)
 
             st.markdown("---")
-            col_m1, col_m2 = st.columns(2)
-            col_m1.metric("Frecuencia > 1.40x", f"{tasa_exito:.1f}%", f"{exitos_140}/{total_rondas}")
-            col_m2.metric("Fallos < 1.40x en últimos 3 tiros", f"{crashes_ultimos_3} de {len(ultimos_3)}")
+            col_sem1, col_sem2 = st.columns(2)
+            
+            # Semáforo para Apuesta Simple (1.40x)
+            with col_sem1:
+                st.markdown("#### 🎯 Para Apuesta Simple (1.40x)")
+                if crashes_ultimos_3 >= 2 or tasa_140 < 65.0:
+                    st.error("🔴 NO APOSTAR (Alto Riesgo)")
+                    st.caption("Cortes rápidos inmediatos detectados.")
+                else:
+                    st.success("🟢 LUZ VERDE SIMPLE")
+                    st.caption(f"Frecuencia > 1.40x: {tasa_140:.1f}%. Flujo estable.")
+
+            # Semáforo para Doble Apuesta (1.50x / 2.00x)
+            with col_sem2:
+                st.markdown("#### 🛡️ Para Doble Apuesta (1.50x / 2.00x)")
+                if crashes_150_ultimos_3 >= 2 or tasa_150 < 60.0:
+                    st.error("🔴 ESPERAR PARA DOBLE APUESTA")
+                    st.caption("Racha fría con caídas antes de 1.50x. Espera 1 o 2 rondas neutras.")
+                else:
+                    st.success("🟢 LUZ VERDE DOBLE APUESTA")
+                    st.caption(f"Frecuencia > 1.50x: {tasa_150:.1f}% | Frecuencia > 2.00x: {tasa_200:.1f}%.")
+
+            st.markdown("---")
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Frecuencia > 1.40x", f"{tasa_140:.1f}%")
+            col_m2.metric("Frecuencia > 1.50x", f"{tasa_150:.1f}%")
+            col_m3.metric("Frecuencia > 2.00x", f"{tasa_200:.1f}%")
             st.caption(f"Valores leídos: {multiplicadores}")
         else:
-            st.warning("No se detectaron multiplicadores legibles. Asegúrate de recortar solo la franja superior de números.")
+            st.warning("No se detectaron multiplicadores legibles. Recorta solo la franja superior.")
 
 # ==========================================
-# PESTAÑA 3: MONTE CARLO
+# PESTAÑA 4: MONTE CARLO
 # ==========================================
-with tabs[2]:
+with tabs[3]:
     st.subheader("🧪 Simulación Monte Carlo (500 Rondas)")
     banca_sim_input = st.number_input("Banca para simular ($):", value=float(banca_inicial), step=1000.0)
     rondas_sim = st.slider("Número de rondas:", min_value=10, max_value=500, value=50, step=10)
@@ -194,4 +271,3 @@ with tabs[2]:
             
         st.line_chart(pd.DataFrame({"Banca": registro}))
         st.write(f"Resultado final: **${banca_actual:,.2f}**")
-        
