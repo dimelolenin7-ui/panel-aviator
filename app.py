@@ -91,7 +91,6 @@ if 'logged_user' not in st.session_state:
     st.session_state.logged_user = None
 
 if not st.session_state.logged_user:
-    # Logo SVG y Estilos de Marca Premium
     logo_svg = """
     <div style="text-align: center; margin-bottom: 25px;">
         <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -108,7 +107,6 @@ if not st.session_state.logged_user:
             </defs>
             <circle cx="50" cy="50" r="44" stroke="url(#ringGrad)" stroke-width="2.5" stroke-dasharray="6 4"/>
             <circle cx="50" cy="50" r="32" stroke="#222736" stroke-width="1.5"/>
-            <!-- Vector Supersónico -->
             <path d="M50 18 L68 74 L50 63 L32 74 Z" fill="url(#planeGrad)" filter="drop-shadow(0px 0px 8px rgba(255, 0, 85, 0.6))"/>
             <circle cx="50" cy="63" r="3" fill="#00f2fe"/>
         </svg>
@@ -332,14 +330,15 @@ with tabs[1]:
             st.rerun()
 
     if len(st.session_state.historial_balance) > 1:
+        st.caption("Evolución de la Banca")
         st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
 
 # ==========================================
 # PESTAÑA 3: ESCÁNER Y DETECTOR DE PATRONES
 # ==========================================
 with tabs[2]:
-    st.subheader("📷 Escáner y Detector de Patrones (Positivo / Negativo)")
-    st.write("Sube la captura de la ventana de historial. El sistema detecta el primer número superior izquierdo como el más reciente.")
+    st.subheader("📷 Escáner y Estrategia de Racha Inmediata")
+    st.write("Sube la captura de la ventana de historial. El sistema detecta el primer número superior izquierdo como la última ronda jugada.")
     
     uploaded_file = st.file_uploader("Subir captura del historial", type=["png", "jpg", "jpeg"])
     
@@ -377,23 +376,27 @@ with tabs[2]:
             
             actual_es_pos = r1_actual >= 2.00
             ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
-            antepas_es_pos = (r3_antepasada is not None) and (r3_antepasada >= 2.00)
 
+            # NUEVA LÓGICA DE TU ESTRATEGIA DIRECTA:
+            # 1. Racha confirmada (mantiene la apuesta abierta)
             if actual_es_pos and ant_es_pos:
-                st.success(f"🟢 ENTRADA RECOMENDADA: Racha Positiva Confirmada (+ / +)")
-                st.write(f"**Diagnóstico:** Tiro actual **+{r1_actual:.2f}x** y anterior **+{r2_anterior:.2f}x**. Se confirmó el flujo morado. Momento propicio para Doble Apuesta 3:1.")
+                st.success(f"🟢 LUZ VERDE ACTIVA: Continuación de Racha Positiva (+ / +)")
+                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** tras otro positivo (**+{r2_anterior:.2f}x**). La racha sigue expandiéndose. Ejecuta Doble Apuesta 3:1.")
+
+            # 2. Rompe racha fría (primer morado tras azules) -> ENTRADA DIRECTA
             elif actual_es_pos and not ant_es_pos:
-                st.warning(f"🟡 ESPERAR CONFIRMACIÓN: Positivo Aislado (+ tras -)")
-                st.write(f"**Diagnóstico:** Tiro actual **+{r1_actual:.2f}x**, pero venía de un corte frío (**-{r2_anterior:.2f}x**). Espera la siguiente ronda para confirmar el segundo positivo.")
-            elif not actual_es_pos and ant_es_pos and antepas_es_pos:
-                st.error(f"🔴 BLOQUEO POR RUPTURA: Fin de Racha Morada")
-                st.write(f"**Diagnóstico:** Primer corte bajo (**-{r1_actual:.2f}x**) tras racha positiva. Alto riesgo de absorción/azules. No apostar.")
+                st.success(f"🟢 ENTRADA POR QUIEBRE: Primer Morado Detectado (+{r1_actual:.2f}x)")
+                st.write(f"**Estrategia:** Acaba de salir el primer positivo tras una fase fría. Según tu patrón, la probabilidad arrastra otro tiro positivo o amortiguado (≥ 1.50x). **Entra con la Doble Apuesta 3:1.**")
+
+            # 3. El tiro actual cayó en azul tras un morado -> SUSPENDER APUESTA
+            elif not actual_es_pos and ant_es_pos:
+                st.error(f"🔴 SUSPENDER APUESTA: Quiebre a Negativo (-{r1_actual:.2f}x)")
+                st.write(f"**Estrategia:** El tiro actual cortó en azul tras el morado anterior. Se detiene la operativa inmediatamente para evitar caer en racha de absorción.")
+
+            # 4. Fase fría continua (azules consecutivos) -> QUIETO
             elif not actual_es_pos and not ant_es_pos:
-                st.error(f"🔴 RACHA NEGATIVA ACTIVA: Azules Consecutivos (- / -)")
-                st.write(f"**Diagnóstico:** Actual (**-{r1_actual:.2f}x**) y anterior (**-{r2_anterior:.2f}x**) fueron cortes fríos. Mantén la banca quieta.")
-            else:
-                st.info(f"⚪ ENTORNO NEUTRO / TRANSICIÓN (Último: {r1_actual:.2f}x)")
-                st.write("**Diagnóstico:** Flujo en transición. Si decides jugar, usa solo Apuesta Simple a 1.40x.")
+                st.error(f"🔴 MANTENERSE QUIETO: Fase Fría Activa (- / -)")
+                st.write(f"**Estrategia:** Ambos tiros fueron cortes negativos (**-{r1_actual:.2f}x** y **-{r2_anterior:.2f}x**). No apuestes. Espera a que la pantalla vuelva a arrojar el primer morado.")
 
             st.markdown("---")
             total_r = len(multiplicadores)
