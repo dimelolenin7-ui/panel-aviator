@@ -107,7 +107,7 @@ with tabs[0]:
 # ==========================================
 with tabs[1]:
     st.title("🛡️ Estrategia Doble Apuesta 3:1 (Ganancia Asegurada)")
-    st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**.")
+    st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**. Puedes modificar los montos manualmente.")
 
     apuesta_doble_total = st.session_state.balance * (riesgo_pct / 100)
     sug_c1 = round((apuesta_doble_total * 0.75), 2)
@@ -158,23 +158,17 @@ with tabs[1]:
             st.rerun()
 
     if len(st.session_state.historial_balance) > 1:
+        st.caption("Evolución de la Banca")
         st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
 
 # ==========================================
 # PESTAÑA 3: ESCÁNER Y DETECTOR DE PATRONES
 # ==========================================
 with tabs[2]:
-    st.subheader("📷 Escáner y Detector de Patrones de Racha")
-    st.write("Sube la captura del historial de Aviator para clasificar la secuencia.")
+    st.subheader("📷 Escáner y Detector de Patrones (Positivo / Negativo)")
+    st.write("Sube la captura de la ventana de historial. El sistema detecta el primer número superior como el tiro más reciente.")
     
     uploaded_file = st.file_uploader("Subir captura del historial", type=["png", "jpg", "jpeg"])
-    
-    # Selector de orden para evitar confusiones de lectura
-    orden_historial = st.radio(
-        "¿Dónde está la ronda más reciente en el texto leído?",
-        ["Al inicio de la lectura (primeros números)", "Al final de la lectura (últimos números)"],
-        index=0
-    )
     
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
@@ -190,71 +184,70 @@ with tabs[2]:
                 multiplicadores.append(val)
         
         if multiplicadores:
-            # Si el usuario indicó que lo más reciente estaba al inicio, invertimos para que el final de la lista siempre sea el tiro más nuevo
-            if orden_historial == "Al inicio de la lectura (primeros números)":
-                multiplicadores.reverse()
+            # En la captura de pantalla de Aviator, el primer elemento arriba a la izquierda es el más reciente.
+            # R1: más reciente, R2: anterior, R3: antepasada
+            r1_actual = multiplicadores[0]
+            r2_anterior = multiplicadores[1] if len(multiplicadores) >= 2 else None
+            r3_antepasada = multiplicadores[2] if len(multiplicadores) >= 3 else None
+            r4_tras_antepasada = multiplicadores[3] if len(multiplicadores) >= 4 else None
 
-            total_rondas = len(multiplicadores)
-            exitos_140 = sum(1 for x in multiplicadores if x >= 1.40)
-            tasa_140 = (exitos_140 / total_rondas) * 100
+            # Clasificación de los últimos 6 tiros en orden cronológico (del pasado al presente)
+            muestra_reciente = multiplicadores[:min(6, len(multiplicadores))]
+            muestra_cronologica = list(reversed(muestra_reciente))
             
-            exitos_150 = sum(1 for x in multiplicadores if x >= 1.50)
-            tasa_150 = (exitos_150 / total_rondas) * 100
+            etiquetas_crono = [
+                f"🟣 +{x:.2f}x" if x >= 2.00 else f"🔵 -{x:.2f}x" 
+                for x in muestra_cronologica
+            ]
+
+            st.markdown("### 🧩 Lectura Cronológica de Secuencia")
+            st.write(f"**Camino recorrido (Pasado ➔ Ronda Actual):**")
+            st.subheader(" ➔ ".join(etiquetas_crono))
             
-            exitos_200 = sum(1 for x in multiplicadores if x >= 2.00)
-            tasa_200 = (exitos_200 / total_rondas) * 100
+            st.markdown("---")
             
-            # Clasificación de colores: M = Morado (>= 2.0x), A = Azul (< 2.0x)
-            etiquetas = ["🟣 M" if x >= 2.00 else "🔵 A" for x in multiplicadores]
+            # EVALUACIÓN DE REGLAS SEGÚN TU ESTRATEGIA:
+            # Positivo: >= 2.00x | Negativo: < 2.00x
+            actual_es_pos = r1_actual >= 2.00
+            ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
+            antepas_es_pos = (r3_antepasada is not None) and (r3_antepasada >= 2.00)
+
+            # Caso 1: Racha Positiva Confirmada (+ y + seguidos)
+            if actual_es_pos and ant_es_pos:
+                st.success(f"🟢 ENTRADA RECOMENDADA: Racha Positiva Confirmada (+ / +)")
+                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y el anterior **+{r2_anterior:.2f}x**. Se confirmó el flujo morado. Momento propicio para la Doble Apuesta 3:1.")
             
-            # Últimos 6 tiros ordenados cronológicamente hacia el turno actual
-            n_analisis = min(6, total_rondas)
-            ultimos_valores = multiplicadores[-n_analisis:]
-            ultimas_etiquetas = etiquetas[-n_analisis:]
+            # Caso 2: Positivo aislado tras negativo (+ recién salido tras -)
+            elif actual_es_pos and not ant_es_pos:
+                st.warning(f"🟡 ESPERAR CONFIRMACIÓN: Positivo Aislado (+ tras -)")
+                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x**, pero venía de un azul (**-{r2_anterior:.2f}x**). No entres a ciegas: espera la siguiente ronda para ver si confirma un segundo positivo consecutivo.")
             
-            st.markdown("### 🧩 Análisis de Patrón Reciente")
-            st.write(f"**Secuencia cronológica (pasado ➔ último tiro jugado):** {' ➔ '.join(ultimas_etiquetas)}")
-            st.caption(f"Valores de la secuencia: {ultimos_valores}")
+            # Caso 3: Ruptura tras racha positiva (- tras varios +)
+            elif not actual_es_pos and ant_es_pos and antepas_es_pos:
+                st.error(f"🔴 BLOQUEO POR RUPTURA: Fin de Racha Morada")
+                st.write(f"**Diagnóstico:** Cayó el primer corte bajo (**-{r1_actual:.2f}x**) tras racha de positivos. Alto riesgo de que comience una racha de absorción/azules. No apostar.")
             
-            ultimo = multiplicadores[-1]
-            penultimo = multiplicadores[-2] if len(multiplicadores) >= 2 else None
-            antepenultimo = multiplicadores[-3] if len(multiplicadores) >= 3 else None
+            # Caso 4: Racha Negativa Activa (- y - seguidos)
+            elif not actual_es_pos and not ant_es_pos:
+                st.error(f"🔴 RACHA NEGATIVA ACTIVA: Azules Consecutivos (- / -)")
+                st.write(f"**Diagnóstico:** Tanto el tiro actual (**-{r1_actual:.2f}x**) como el anterior (**-{r2_anterior:.2f}x**) fueron cortes fríos. Mantén la banca quieta hasta que rompa con un morado y se confirme.")
             
-            # 1. Racha morada consecutiva confirmada (2 o más seguidos)
-            if ultimo >= 2.00 and penultimo is not None and penultimo >= 2.00:
-                st.success(f"🟢 SEÑAL DE ENTRADA: Racha Morada Confirmada (Último: {ultimo:.2f}x)")
-                st.write("**Estrategia:** Patrón de racha morada activo. Momento óptimo para la doble apuesta 3:1 (1.50x y 2.00x).")
-                
-            # 2. Morado aislado recién salido tras un azul
-            elif ultimo >= 2.00 and (penultimo is None or penultimo < 2.00):
-                st.warning(f"🟡 ESPERAR CONFIRMACIÓN: Morado Aislado (Último: {ultimo:.2f}x)")
-                st.write("**Estrategia:** Acaba de salir el primer morado tras un corte frío. Espera 1 ronda a ver si se repite el morado antes de arriesgar.")
-                
-            # 3. Ruptura tras racha larga (primer azul tras 3 o más morados)
-            elif ultimo < 2.00 and penultimo is not None and penultimo >= 2.00 and antepenultimo is not None and antepenultimo >= 2.00:
-                st.error(f"🔴 BLOQUEO POR RUPTURA: Fin de Racha Morada (Último: {ultimo:.2f}x)")
-                st.write("**Estrategia:** Cayó el primer corte bajo tras racha morada. Alta probabilidad de fase fría con varios azules. No apostar.")
-                
-            # 4. Alternancia (Morado - Azul - Morado - Azul)
-            elif (len(multiplicadores) >= 4 and 
-                  ((multiplicadores[-1] < 2.0 and multiplicadores[-2] >= 2.0 and multiplicadores[-3] < 2.0 and multiplicadores[-4] >= 2.0) or
-                   (multiplicadores[-1] >= 2.0 and multiplicadores[-2] < 2.0 and multiplicadores[-3] >= 2.0 and multiplicadores[-4] < 2.0))):
-                st.info("⚠️ PATRÓN DE ALTERNANCIA (Ping-Pong: 1 Morado / 1 Azul)")
-                st.write("**Estrategia:** Hay alternancia continua. Si juegas, usa solo Apuesta Simple a 1.40x. No arriesgues la doble apuesta.")
-                
-            # 5. Racha fría activa (2 o más azules seguidos)
-            elif ultimo < 2.00 and penultimo is not None and penultimo < 2.00:
-                st.error(f"🔴 RACHA FRÍA ACTIVA: Azules Consecutivos (Último: {ultimo:.2f}x)")
-                st.write("**Estrategia:** Cortes por debajo de 2.00x en curso. Pausa las apuestas hasta que vuelva a salir un multiplicador morado.")
-                
+            # Caso 5: Alternancia / Rebote simple
             else:
-                st.info(f"⚪ PATRÓN EN FORMACIÓN: Último tiro {ultimo:.2f}x. Entorno neutral.")
+                st.info(f"⚪ ENTORNO NEUTRO / ALTERNANCIA (Último: {r1_actual:.2f}x)")
+                st.write("**Diagnóstico:** Flujo en transición. Si decides jugar, utiliza únicamente Apuesta Simple a 1.40x.")
 
             st.markdown("---")
+            total_r = len(multiplicadores)
+            exitos_140 = sum(1 for x in multiplicadores if x >= 1.40)
+            exitos_150 = sum(1 for x in multiplicadores if x >= 1.50)
+            exitos_200 = sum(1 for x in multiplicadores if x >= 2.00)
+
             col_m1, col_m2, col_m3 = st.columns(3)
-            col_m1.metric("Frecuencia > 1.40x", f"{tasa_140:.1f}%")
-            col_m2.metric("Frecuencia > 1.50x", f"{tasa_150:.1f}%")
-            col_m3.metric("Frecuencia > 2.00x", f"{tasa_200:.1f}%")
+            col_m1.metric("Frecuencia > 1.40x", f"{(exitos_140/total_r)*100:.1f}%")
+            col_m2.metric("Frecuencia > 1.50x", f"{(exitos_150/total_r)*100:.1f}%")
+            col_m3.metric("Frecuencia Positivos (≥ 2.00x)", f"{(exitos_200/total_r)*100:.1f}%")
+            st.caption(f"Valores leídos del historial: {multiplicadores}")
         else:
             st.warning("No se detectaron multiplicadores legibles. Recorta solo la franja superior de números.")
 
