@@ -16,7 +16,7 @@ if 'historial_balance' not in st.session_state:
 # Barra lateral de configuración
 st.sidebar.header("⚙️ Configuración de Parámetros")
 banca_inicial = st.sidebar.number_input("Banca Inicial ($ / COP):", value=50000.0, step=1000.0)
-riesgo_pct = st.sidebar.slider("Riesgo por ronda (%):", min_value=0.5, max_value=5.0, value=1.5, step=0.1)
+riesgo_pct = st.sidebar.slider("Riesgo total por ronda (%):", min_value=0.5, max_value=6.0, value=4.0, step=0.1)
 stop_loss_pct = st.sidebar.slider("Stop Loss (% pérdida):", min_value=5, max_value=50, value=20)
 take_profit_pct = st.sidebar.slider("Take Profit (% ganancia):", min_value=10, max_value=100, value=25)
 
@@ -27,12 +27,12 @@ if st.sidebar.button("Reiniciar Banca"):
 
 piso_sl = banca_inicial * (1 - stop_loss_pct / 100)
 techo_tp = banca_inicial * (1 + take_profit_pct / 100)
-apuesta_sug = st.session_state.balance * (riesgo_pct / 100)
+apuesta_sug_simple = st.session_state.balance * (riesgo_pct / 100)
 
 # Pestañas de navegación
 tabs = st.tabs([
     "🟢 Apuesta Simple", 
-    "🛡️ Doble Apuesta (Cobertura)", 
+    "🛡️ Doble Apuesta (Estrategia 3:1)", 
     "📷 Escáner y Semáforos", 
     "🧪 Monte Carlo"
 ])
@@ -52,7 +52,7 @@ with tabs[0]:
 
     with col2:
         st.caption("Apuesta Sugerida")
-        st.subheader(f"${apuesta_sug:,.2f}")
+        st.subheader(f"${apuesta_sug_simple:,.2f}")
 
     col3, col4 = st.columns(2)
     with col3:
@@ -84,7 +84,7 @@ with tabs[0]:
     col_reg1, col_reg2, col_reg3 = st.columns([2, 1, 1])
     
     with col_reg1:
-        apuesta_real = st.number_input("Monto apostado ($):", value=float(round(apuesta_sug, 2)), step=10.0, key="apuesta_simple_input")
+        apuesta_real = st.number_input("Monto apostado ($):", value=float(round(apuesta_sug_simple, 2)), step=50.0, key="apuesta_simple_input")
     with col_reg2:
         st.write("")
         st.write("")
@@ -104,52 +104,60 @@ with tabs[0]:
         st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
 
 # ==========================================
-# PESTAÑA 2: DOBLE APUESTA CON COBERTURA
+# PESTAÑA 2: DOBLE APUESTA 3:1 MODIFICABLE
 # ==========================================
 with tabs[1]:
-    st.title("🛡️ Estrategia de Doble Apuesta Simultánea")
-    st.write("Coloca dos apuestas simultáneas en el casino en proporción **2 a 1**. La Casilla 1 absorbe la pérdida de la Casilla 2 si no llega a 2.00x.")
+    st.title("🛡️ Estrategia Doble Apuesta 3:1 (Ganancia Asegurada)")
+    st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**. Puedes modificar los montos manualmente según el saldo disponible.")
+
+    # Cálculo automático proporcional 3:1 por defecto (3/4 y 1/4)
+    apuesta_doble_total = st.session_state.balance * (riesgo_pct / 100)
+    sug_c1 = round((apuesta_doble_total * 0.75), 2)
+    sug_c2 = round((apuesta_doble_total * 0.25), 2)
 
     col_d1, col_d2 = st.columns(2)
     col_d1.metric("Banca Actual", f"${st.session_state.balance:,.2f} COP")
-    
-    # Cálculo de apuestas 2:1
-    apuesta_doble_total = st.session_state.balance * (riesgo_pct / 100)
-    # 2/3 para cobertura (1.50x), 1/3 para ataque (2.00x)
-    monto_cobertura = round((apuesta_doble_total * (2.0 / 3.0)), 2)
-    monto_ataque = round((apuesta_doble_total * (1.0 / 3.0)), 2)
+    col_d2.metric("Inversión Sugerida Total", f"${(sug_c1 + sug_c2):,.2f} COP")
 
-    st.markdown("### 📋 Configuración para el Casino")
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        st.info(f"**Casilla 1 (Cobertura):**\n- Monto: **${monto_cobertura:,.2f} COP**\n- Auto Cash-out: **1.50x**\n- Ganancia neta si cobra: **+${monto_cobertura * 0.50:,.2f} COP**")
-    with col_c2:
-        st.success(f"**Casilla 2 (Beneficio):**\n- Monto: **${monto_ataque:,.2f} COP**\n- Auto Cash-out: **2.00x**\n- Ganancia neta si cobra: **+${monto_ataque * 1.00:,.2f} COP**")
+    st.markdown("### ✏️ Configuración Manual de Apuestas")
+    col_inp1, col_inp2 = st.columns(2)
+    with col_inp1:
+        monto_c1 = st.number_input("Casilla 1 - Cobertura ($ COP):", value=float(sug_c1 if sug_c1 > 0 else 1500.0), step=100.0)
+        auto_cash_c1 = st.number_input("Auto Cash-out Casilla 1 (x):", value=1.50, step=0.05)
+    with col_inp2:
+        monto_c2 = st.number_input("Casilla 2 - Multiplicador ($ COP):", value=float(sug_c2 if sug_c2 > 0 else 500.0), step=100.0)
+        auto_cash_c2 = st.number_input("Auto Cash-out Casilla 2 (x):", value=2.00, step=0.05)
+
+    # Cálculo de ganancias proyectadas
+    ganancia_c1_sola = (monto_c1 * (auto_cash_c1 - 1.0)) - monto_c2
+    ganancia_ambas = (monto_c1 * (auto_cash_c1 - 1.0)) + (monto_c2 * (auto_cash_c2 - 1.0))
+    perdida_total = monto_c1 + monto_c2
+
+    st.markdown("#### 📊 Proyección con los valores actuales:")
+    st.info(f"- **Si cae entre {auto_cash_c1:.2f}x y {auto_cash_c2 - 0.01:.2f}x:** Ganancia neta de **+${ganancia_c1_sola:,.2f} COP**\n"
+            f"- **Si supera {auto_cash_c2:.2f}x (Ambas cobradas):** Ganancia neta de **+${ganancia_ambas:,.2f} COP**\n"
+            f"- **Si cae antes de {auto_cash_c1:.2f}x:** Pérdida total de **-${perdida_total:,.2f} COP**")
 
     st.markdown("---")
     st.subheader("📝 Registrar Resultado de la Ronda Doble")
     
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    col_b1, col_b2, col_b3 = st.columns(3)
     
-    with col_btn1:
-        if st.button("🏆 Superó 2.00x (Ambas Ganadas)", use_container_width=True):
-            # Ganan ambas: Casilla 1 da 0.5x, Casilla 2 da 1.0x
-            ganancia = (monto_cobertura * 0.50) + (monto_ataque * 1.00)
-            st.session_state.balance += ganancia
+    with col_b1:
+        if st.button(f"🏆 Superó {auto_cash_c2:.2f}x (Ambas)", use_container_width=True):
+            st.session_state.balance += ganancia_ambas
             st.session_state.historial_balance.append(st.session_state.balance)
             st.rerun()
             
-    with col_btn2:
-        if st.button("🛡️ Entre 1.50x y 1.99x (Tablas / $0)", use_container_width=True):
-            # Casilla 1 gana lo que Casilla 2 pierde
+    with col_b2:
+        if st.button(f"🛡️ Entre {auto_cash_c1:.2f}x y {auto_cash_c2:.2f}x", use_container_width=True):
+            st.session_state.balance += ganancia_c1_sola
             st.session_state.historial_balance.append(st.session_state.balance)
             st.rerun()
             
-    with col_btn3:
-        if st.button("💥 Menor a 1.50x (Pérdida Total)", use_container_width=True):
-            # Pierden ambas casillas
-            perdida = monto_cobertura + monto_ataque
-            st.session_state.balance -= perdida
+    with col_b3:
+        if st.button(f"💥 Menor a {auto_cash_c1:.2f}x (Pérdida)", use_container_width=True):
+            st.session_state.balance -= perdida_total
             st.session_state.historial_balance.append(st.session_state.balance)
             st.rerun()
 
@@ -162,7 +170,7 @@ with tabs[1]:
 # ==========================================
 with tabs[2]:
     st.subheader("📷 Semáforos de Entrada Inteligentes")
-    st.write("Sube la captura del historial de Aviator para evaluar las condiciones de entrada.")
+    st.write("Sube la captura recortada del historial de Aviator para evaluar las condiciones de entrada.")
     
     uploaded_file = st.file_uploader("Subir captura del historial", type=["png", "jpg", "jpeg"])
     
@@ -197,7 +205,6 @@ with tabs[2]:
             st.markdown("---")
             col_sem1, col_sem2 = st.columns(2)
             
-            # Semáforo para Apuesta Simple (1.40x)
             with col_sem1:
                 st.markdown("#### 🎯 Para Apuesta Simple (1.40x)")
                 if crashes_ultimos_3 >= 2 or tasa_140 < 65.0:
@@ -207,7 +214,6 @@ with tabs[2]:
                     st.success("🟢 LUZ VERDE SIMPLE")
                     st.caption(f"Frecuencia > 1.40x: {tasa_140:.1f}%. Flujo estable.")
 
-            # Semáforo para Doble Apuesta (1.50x / 2.00x)
             with col_sem2:
                 st.markdown("#### 🛡️ Para Doble Apuesta (1.50x / 2.00x)")
                 if crashes_150_ultimos_3 >= 2 or tasa_150 < 60.0:
@@ -269,5 +275,5 @@ with tabs[3]:
                     
             registro.append(banca_actual)
             
-        st.line_chart(pd.DataFrame({"Banca": registro}))
+        st.line_chart(pd.DataFrame({"Balance": registro}))
         st.write(f"Resultado final: **${banca_actual:,.2f}**")
