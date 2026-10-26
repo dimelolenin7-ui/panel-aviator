@@ -194,7 +194,10 @@ if st.sidebar.button("🔄 Reiniciar Balance"):
 
 piso_sl = banca_inicial * (1 - stop_loss_pct / 100)
 techo_tp = banca_inicial * (1 + take_profit_pct / 100)
-apuesta_sug_simple = st.session_state.balance * (riesgo_pct / 100)
+
+# Redondeo a múltiplos de 100 COP para Apuesta Simple
+apuesta_calc_simple = st.session_state.balance * (riesgo_pct / 100)
+apuesta_sug_simple = max(500.0, float(int(apuesta_calc_simple // 100) * 100))
 
 tabs = st.tabs([
     "🟢 Apuesta Simple", 
@@ -217,8 +220,8 @@ with tabs[0]:
         st.markdown(f"<span style='color: {'#00cc96' if dif_pct >= 0 else '#ff4b4b'}; font-weight: bold;'>{'↑' if dif_pct >= 0 else '↓'} {dif_pct:+.2f}%</span>", unsafe_allow_html=True)
 
     with col2:
-        st.caption("Apuesta Sugerida")
-        st.subheader(f"${apuesta_sug_simple:,.2f}")
+        st.caption("Apuesta Sugerida (Redondeada a $100)")
+        st.subheader(f"${apuesta_sug_simple:,.0f} COP")
 
     col3, col4 = st.columns(2)
     with col3:
@@ -250,7 +253,7 @@ with tabs[0]:
     col_reg1, col_reg2, col_reg3 = st.columns([2, 1, 1])
     
     with col_reg1:
-        apuesta_real = st.number_input("Monto apostado ($):", value=float(round(apuesta_sug_simple, 2)), step=50.0, key="apuesta_simple_input")
+        apuesta_real = st.number_input("Monto apostado ($):", value=float(apuesta_sug_simple), step=100.0, key="apuesta_simple_input")
     with col_reg2:
         st.write("")
         st.write("")
@@ -278,21 +281,27 @@ with tabs[1]:
     st.title("🛡️ Cobertura Avanzada 3:1 (Ganancia Asegurada)")
     st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**.")
 
+    # CÁLCULO CON ESCALONES EXACTOS DE $100 COP (Sin decimales)
     apuesta_doble_total = st.session_state.balance * (riesgo_pct / 100)
-    sug_c1 = round((apuesta_doble_total * 0.75), 2)
-    sug_c2 = round((apuesta_doble_total * 0.25), 2)
+    
+    calc_c1 = apuesta_doble_total * 0.75
+    calc_c2 = apuesta_doble_total * 0.25
+    
+    # Redondeo estricto hacia abajo a múltiplos de 100 (mínimos 1500 y 500)
+    sug_c1 = max(1500.0, float(int(calc_c1 // 100) * 100))
+    sug_c2 = max(500.0, float(int(calc_c2 // 100) * 100))
 
     col_d1, col_d2 = st.columns(2)
     col_d1.metric("Banca Actual", f"${st.session_state.balance:,.2f} COP")
-    col_d2.metric("Inversión Sugerida Total", f"${(sug_c1 + sug_c2):,.2f} COP")
+    col_d2.metric("Inversión Total Redondeada", f"${(sug_c1 + sug_c2):,.0f} COP")
 
     st.markdown("### ✏️ Configuración Manual")
     col_inp1, col_inp2 = st.columns(2)
     with col_inp1:
-        monto_c1 = st.number_input("Casilla 1 - Cobertura ($ COP):", value=float(sug_c1 if sug_c1 > 0 else 1500.0), step=100.0)
+        monto_c1 = st.number_input("Casilla 1 - Cobertura ($ COP):", value=float(sug_c1), step=100.0)
         auto_cash_c1 = st.number_input("Auto Cash-out Casilla 1 (x):", value=1.50, step=0.05)
     with col_inp2:
-        monto_c2 = st.number_input("Casilla 2 - Multiplicador ($ COP):", value=float(sug_c2 if sug_c2 > 0 else 500.0), step=100.0)
+        monto_c2 = st.number_input("Casilla 2 - Multiplicador ($ COP):", value=float(sug_c2), step=100.0)
         auto_cash_c2 = st.number_input("Auto Cash-out Casilla 2 (x):", value=2.00, step=0.05)
 
     ganancia_c1_sola = (monto_c1 * (auto_cash_c1 - 1.0)) - monto_c2
@@ -368,18 +377,12 @@ with tabs[2]:
                 continue
         
         if multiplicadores:
-            # En la ventana de Aviator:
-            # multiplicadores[0] es el primer tiro (arriba a la izquierda) = Ronda Actual
-            # multiplicadores[1] es el siguiente hacia la derecha = Ronda Anterior
             r1_actual = multiplicadores[0]
             r2_anterior = multiplicadores[1] if len(multiplicadores) >= 2 else None
             r3_antepasada = multiplicadores[2] if len(multiplicadores) >= 3 else None
 
-            # Para mostrar la secuencia cronológica: del pasado hacia la ronda actual
-            # Tomamos los tiros recientes (ej: 6) y los ordenamos del más antiguo al más reciente
             n_muestra = min(6, len(multiplicadores))
             sub_muestra = multiplicadores[:n_muestra]
-            # Pasado (último del sub_muestra) ➔ Presente (sub_muestra[0])
             crono_orden = list(reversed(sub_muestra))
 
             etiquetas_crono = [
@@ -396,7 +399,6 @@ with tabs[2]:
             actual_es_pos = r1_actual >= 2.00
             ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
 
-            # Contar azules que venían ANTES de la ronda actual
             azules_previos = 0
             for x in multiplicadores[1:]:
                 if x < 2.00:
@@ -404,12 +406,10 @@ with tabs[2]:
                 else:
                     break
 
-            # 1. Racha confirmada continua (+ actual y + anterior)
             if actual_es_pos and ant_es_pos:
                 st.success(f"🟢 LUZ VERDE CONFIRMADA: Racha Positiva Sólida (+ / +)")
                 st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y el anterior **+{r2_anterior:.2f}x**. Se confirmó el ciclo morado. **Entra con la Doble Apuesta 3:1.**")
 
-            # 2. Primer morado tras fase fría
             elif actual_es_pos and not ant_es_pos:
                 if azules_previos >= 3:
                     st.error(f"🛑 TRAMPA DE ABSORCIÓN DETECTADA: Morado Aislado tras {azules_previos} Azules (+{r1_actual:.2f}x)")
@@ -421,7 +421,6 @@ with tabs[2]:
                     st.warning(f"🟡 PRECAUCIÓN: Morado Débil (+{r1_actual:.2f}x)")
                     st.write(f"**Estrategia:** El multiplicador apenas superó 2.00x (**+{r1_actual:.2f}x**). Riesgo elevado de falso quiebre. Espera 1 tiro de confirmación.")
 
-            # 3. Freno de emergencia: el tiro actual cortó en azul tras un morado
             elif not actual_es_pos and ant_es_pos:
                 if r1_actual >= 1.50:
                     st.warning(f"⚠️ FRENO DE EMERGENCIA: Azul Amortiguado (-{r1_actual:.2f}x)")
@@ -430,7 +429,6 @@ with tabs[2]:
                     st.error(f"🔴 BLOQUEO TOTAL: Falso Quiebre Confirmado (-{r1_actual:.2f}x)")
                     st.write(f"**Estrategia:** El tiro actual cayó en **-{r1_actual:.2f}x** tras el morado anterior (+{r2_anterior:.2f}x). El morado fue una trampa de absorción. **Detén la operativa en seco**.")
 
-            # 4. Fase fría prolongada (- actual y - anterior)
             elif not actual_es_pos and not ant_es_pos:
                 st.error(f"🔴 MANTENERSE QUIETO: Fase Fría Activa (- / -)")
                 st.write(f"**Estrategia:** El algoritmo está en absorción activa (**-{r1_actual:.2f}x** y **-{r2_anterior:.2f}x**). No pongas apuestas.")
