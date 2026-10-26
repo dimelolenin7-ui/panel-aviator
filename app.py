@@ -7,6 +7,7 @@ import json
 import hashlib
 from PIL import Image
 import pytesseract
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="AeroMetrics Pro | Terminal Cuantitativa", layout="wide", page_icon="⚡")
 
@@ -83,6 +84,49 @@ def guardar_datos_usuario(username, balance, banca_inicial, historial):
     conn.close()
 
 init_db()
+
+# Función para reproducir sonido de semáforo
+def reproducir_sonido(tipo):
+    if tipo == "verde":
+        js = """
+        <script>
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            osc.frequency.setValueAtTime(1175, ctx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.3, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.28);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.3);
+        } catch(e) {}
+        </script>
+        """
+        components.html(js, height=0, width=0)
+    elif tipo == "rojo":
+        js = """
+        <script>
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = "sawtooth";
+            osc.frequency.setValueAtTime(220, ctx.currentTime);
+            osc.frequency.linearRampToValueAtTime(130, ctx.currentTime + 0.35);
+            gain.gain.setValueAtTime(0.35, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.37);
+        } catch(e) {}
+        </script>
+        """
+        components.html(js, height=0, width=0)
 
 # ==========================================
 # PANTALLA DE ACCESO (BRANDING & LOGIN)
@@ -195,9 +239,11 @@ if st.sidebar.button("🔄 Reiniciar Balance"):
 piso_sl = banca_inicial * (1 - stop_loss_pct / 100)
 techo_tp = banca_inicial * (1 + take_profit_pct / 100)
 
-# Redondeo simple a $100 COP
 apuesta_calc_simple = st.session_state.balance * (riesgo_pct / 100)
 apuesta_sug_simple = max(500.0, float(int(apuesta_calc_simple // 100) * 100))
+
+if 'multiplicadores_memoria' not in st.session_state:
+    st.session_state.multiplicadores_memoria = []
 
 tabs = st.tabs([
     "🟢 Apuesta Simple", 
@@ -275,13 +321,12 @@ with tabs[0]:
         st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
 
 # ==========================================
-# PESTAÑA 2: DOBLE APUESTA 3:1 MODIFICABLE (CON REDONDEO A $100 COP)
+# PESTAÑA 2: DOBLE APUESTA 3:1 MODIFICABLE (REDONDEO A $100 COP)
 # ==========================================
 with tabs[1]:
     st.title("🛡️ Cobertura Avanzada 3:1 (Ganancia Asegurada)")
     st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**.")
 
-    # CÁLCULO CON ESCALONES EXACTOS DE $100 COP
     apuesta_doble_total = st.session_state.balance * (riesgo_pct / 100)
     
     calc_c1 = apuesta_doble_total * 0.75
@@ -342,11 +387,27 @@ with tabs[1]:
         st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
 
 # ==========================================
-# PESTAÑA 3: ESCÁNER Y DETECTOR DE PATRONES
+# PESTAÑA 3: ESCÁNER, PATRONES Y ENTRADA RÁPIDA CON SONIDO
 # ==========================================
 with tabs[2]:
     st.subheader("📷 Escáner y Detector de Patrones (Filtro Anti-Trampa)")
-    st.write("Sube la captura de la ventana de historial. El sistema reconoce la lectura natural de Aviator: arriba a la izquierda es la ronda actual.")
+
+    # ENTRADA RÁPIDA MANUAL
+    st.markdown("#### ⚡ Entrada Manual Rápida")
+    col_in_val, col_in_btn = st.columns([2, 1])
+    with col_in_val:
+        mult_input = st.number_input("Último resultado Aviator (ej: 2.30):", min_value=1.00, max_value=999.0, value=2.30, step=0.05)
+    with col_in_btn:
+        st.write("")
+        st.write("")
+        if st.button("➕ Analizar Tiro", use_container_width=True):
+            st.session_state.multiplicadores_memoria.insert(0, mult_input)
+            if len(st.session_state.multiplicadores_memoria) > 30:
+                st.session_state.multiplicadores_memoria.pop()
+            st.rerun()
+
+    st.markdown("---")
+    st.write("O sube la captura de la ventana de historial:")
     
     uploaded_file = st.file_uploader("Subir captura del historial", type=["png", "jpg", "jpeg"])
     
@@ -364,87 +425,102 @@ with tabs[2]:
 
         matches = re.findall(r"(\d+[\.,]\d{1,2})\s*x?", texto_filtrado)
         
-        multiplicadores = []
+        multiplicadores_ocr = []
         for m in matches:
             try:
                 val = float(m.replace(",", "."))
                 if 1.00 <= val <= 999.0:
                     if val in [50.0, 500.0, 1500.0, 5000.0, 10000.0, 50000.0]:
                         continue
-                    multiplicadores.append(val)
+                    multiplicadores_ocr.append(val)
             except ValueError:
                 continue
         
-        if multiplicadores:
-            r1_actual = multiplicadores[0]
-            r2_anterior = multiplicadores[1] if len(multiplicadores) >= 2 else None
-            r3_antepasada = multiplicadores[2] if len(multiplicadores) >= 3 else None
+        if multiplicadores_ocr:
+            st.session_state.multiplicadores_memoria = multiplicadores_ocr
 
-            n_muestra = min(6, len(multiplicadores))
-            sub_muestra = multiplicadores[:n_muestra]
-            crono_orden = list(reversed(sub_muestra))
+    multiplicadores = st.session_state.multiplicadores_memoria
+    if multiplicadores:
+        r1_actual = multiplicadores[0]
+        r2_anterior = multiplicadores[1] if len(multiplicadores) >= 2 else None
+        r3_antepasada = multiplicadores[2] if len(multiplicadores) >= 3 else None
 
-            etiquetas_crono = [
-                f"🟣 +{x:.2f}x" if x >= 2.00 else f"🔵 -{x:.2f}x" 
-                for x in crono_orden
-            ]
+        n_muestra = min(6, len(multiplicadores))
+        sub_muestra = multiplicadores[:n_muestra]
+        crono_orden = list(reversed(sub_muestra))
 
-            st.markdown("### 🧩 Lectura Cronológica de Secuencia")
-            st.write(f"**Camino recorrido (Pasado ➔ Ronda Actual que acaba de cerrar):**")
-            st.subheader(" ➔ ".join(etiquetas_crono))
-            
-            st.markdown("---")
-            
-            actual_es_pos = r1_actual >= 2.00
-            ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
+        etiquetas_crono = [
+            f"🟣 +{x:.2f}x" if x >= 2.00 else f"🔵 -{x:.2f}x" 
+            for x in crono_orden
+        ]
 
-            azules_previos = 0
-            for x in multiplicadores[1:]:
-                if x < 2.00:
-                    azules_previos += 1
-                else:
-                    break
+        st.markdown("### 🧩 Lectura Cronológica de Secuencia")
+        st.write(f"**Camino recorrido (Pasado ➔ Ronda Actual que acaba de cerrar):**")
+        st.subheader(" ➔ ".join(etiquetas_crono))
+        
+        st.markdown("---")
+        
+        actual_es_pos = r1_actual >= 2.00
+        ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
 
-            if actual_es_pos and ant_es_pos:
-                st.success(f"🟢 LUZ VERDE CONFIRMADA: Racha Positiva Sólida (+ / +)")
-                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y confirmó al anterior (**+{r2_anterior:.2f}x**). La racha ya rompió cualquier trampa. **Entra con la Doble Apuesta 3:1.**")
+        azules_previos = 0
+        for x in multiplicadores[1:]:
+            if x < 2.00:
+                azules_previos += 1
+            else:
+                break
 
-            elif actual_es_pos and not ant_es_pos:
-                if azules_previos >= 3:
-                    st.error(f"🛑 TRAMPA DE ABSORCIÓN DETECTADA: Morado Aislado tras {azules_previos} Azules (+{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** Venía un bloque denso de absorción ({azules_previos} caídas seguidas). Este primer morado suele ser un rebote en falso. **NO APOSTAR:** Espera obligatoriamente a que confirme un segundo morado consecutivo.")
-                elif r1_actual >= 2.50:
-                    st.success(f"🟢 ENTRADA MODERADA: Quiebre Fuerte (+{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** La fase fría previa fue corta ({azules_previos} azules) y el quiebre superó 2.50x. Hay probabilidad de continuación. **Entra con Doble Apuesta 3:1.**")
-                else:
-                    st.warning(f"🟡 PRECAUCIÓN: Morado Débil (+{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** El multiplicador apenas superó 2.00x (**+{r1_actual:.2f}x**). Riesgo elevado de falso quiebre. Espera 1 tiro de confirmación.")
+        # SEMÁFORO CON NOTIFICACIÓN SONORA
+        if actual_es_pos and ant_es_pos:
+            reproducir_sonido("verde")
+            st.success(f"🟢 LUZ VERDE CONFIRMADA: Racha Positiva Sólida (+ / +)")
+            st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y confirmó al anterior (**+{r2_anterior:.2f}x**). La racha ya rompió cualquier trampa. **Entra con la Doble Apuesta 3:1.**")
 
-            elif not actual_es_pos and ant_es_pos:
-                if r1_actual >= 1.50:
-                    st.warning(f"⚠️ FRENO DE EMERGENCIA: Azul Amortiguado (-{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** El tiro actual cayó en **{r1_actual:.2f}x** tras el morado anterior (+{r2_anterior:.2f}x). La Casilla 1 cobró (+250 COP), pero el flujo positivo se cortó. **Suspende inmediatamente las apuestas.**")
-                else:
-                    st.error(f"🔴 BLOQUEO TOTAL: Falso Quiebre Confirmado (-{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** El tiro actual cayó en **-{r1_actual:.2f}x** tras el morado anterior (+{r2_anterior:.2f}x). El morado fue una trampa de absorción. **Detén la operativa en seco**.")
+        elif actual_es_pos and not ant_es_pos:
+            if azules_previos >= 3:
+                reproducir_sonido("rojo")
+                st.error(f"🛑 TRAMPA DE ABSORCIÓN DETECTADA: Morado Aislado tras {azules_previos} Azules (+{r1_actual:.2f}x)")
+                st.write(f"**Estrategia:** Venía un bloque denso de absorción ({azules_previos} caídas seguidas). Este primer morado suele ser un rebote en falso. **NO APOSTAR:** Espera obligatoriamente a que confirme un segundo morado consecutivo.")
+            elif r1_actual >= 2.50:
+                reproducir_sonido("verde")
+                st.success(f"🟢 ENTRADA MODERADA: Quiebre Fuerte (+{r1_actual:.2f}x)")
+                st.write(f"**Estrategia:** La fase fría previa fue corta ({azules_previos} azules) y el quiebre superó 2.50x. Hay probabilidad de continuación. **Entra con Doble Apuesta 3:1.**")
+            else:
+                reproducir_sonido("rojo")
+                st.warning(f"🟡 PRECAUCIÓN: Morado Débil (+{r1_actual:.2f}x)")
+                st.write(f"**Estrategia:** El multiplicador apenas superó 2.00x (**+{r1_actual:.2f}x**). Riesgo elevado de falso quiebre. Espera 1 tiro de confirmación.")
 
-            elif not actual_es_pos and not ant_es_pos:
-                st.error(f"🔴 MANTENERSE QUIETO: Fase Fría Activa (- / -)")
-                st.write(f"**Estrategia:** El algoritmo está en absorción activa (**-{r1_actual:.2f}x** y **-{r2_anterior:.2f}x**). No pongas apuestas.")
+        elif not actual_es_pos and ant_es_pos:
+            reproducir_sonido("rojo")
+            if r1_actual >= 1.50:
+                st.warning(f"⚠️ FRENO DE EMERGENCIA: Azul Amortiguado (-{r1_actual:.2f}x)")
+                st.write(f"**Estrategia:** El tiro actual cayó en **{r1_actual:.2f}x** tras el morado anterior (+{r2_anterior:.2f}x). La Casilla 1 cobró (+250 COP), pero el flujo positivo se cortó. **Suspende inmediatamente las apuestas.**")
+            else:
+                st.error(f"🔴 BLOQUEO TOTAL: Falso Quiebre Confirmado (-{r1_actual:.2f}x)")
+                st.write(f"**Estrategia:** El tiro actual cayó en **-{r1_actual:.2f}x** tras el morado anterior (+{r2_anterior:.2f}x). El morado fue una trampa de absorción. **Detén la operativa en seco**.")
 
-            st.markdown("---")
-            total_r = len(multiplicadores)
-            exitos_140 = sum(1 for x in multiplicadores if x >= 1.40)
-            exitos_150 = sum(1 for x in multiplicadores if x >= 1.50)
-            exitos_200 = sum(1 for x in multiplicadores if x >= 2.00)
+        elif not actual_es_pos and not ant_es_pos:
+            reproducir_sonido("rojo")
+            st.error(f"🔴 MANTENERSE QUIETO: Fase Fría Activa (- / -)")
+            st.write(f"**Estrategia:** El algoritmo está en absorción activa (**-{r1_actual:.2f}x** y **-{r2_anterior:.2f}x**). No pongas apuestas.")
 
-            col_m1, col_m2, col_m3 = st.columns(3)
-            col_m1.metric("Frecuencia > 1.40x", f"{(exitos_140/total_r)*100:.1f}%")
-            col_m2.metric("Frecuencia > 1.50x", f"{(exitos_150/total_r)*100:.1f}%")
-            col_m3.metric("Frecuencia Positivos (≥ 2.00x)", f"{(exitos_200/total_r)*100:.1f}%")
-            st.caption(f"Valores leídos del historial: {multiplicadores}")
-        else:
-            st.warning("No se detectaron multiplicadores legibles. Recorta solo la franja superior de números.")
+        if st.button("🗑️ Borrar Historial de Tiros", use_container_width=True):
+            st.session_state.multiplicadores_memoria = []
+            st.rerun()
+
+        st.markdown("---")
+        total_r = len(multiplicadores)
+        exitos_140 = sum(1 for x in multiplicadores if x >= 1.40)
+        exitos_150 = sum(1 for x in multiplicadores if x >= 1.50)
+        exitos_200 = sum(1 for x in multiplicadores if x >= 2.00)
+
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("Frecuencia > 1.40x", f"{(exitos_140/total_r)*100:.1f}%")
+        col_m2.metric("Frecuencia > 1.50x", f"{(exitos_150/total_r)*100:.1f}%")
+        col_m3.metric("Frecuencia Positivos (≥ 2.00x)", f"{(exitos_200/total_r)*100:.1f}%")
+        st.caption(f"Valores leídos del historial: {multiplicadores}")
+    else:
+        st.info("Ingresa un número arriba o sube una captura para activar el semáforo con sonido.")
 
 # ==========================================
 # PESTAÑA 4: MONTE CARLO
