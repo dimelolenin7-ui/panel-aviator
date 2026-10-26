@@ -346,25 +346,20 @@ with tabs[2]:
         image = Image.open(uploaded_file)
         st.image(image, caption="Historial cargado", use_container_width=True)
         
-        # Filtro de texto para evitar que lea el saldo en COP o montos de apuesta
         texto_extraido = pytesseract.image_to_string(image)
         lineas_limpias = []
         for line in texto_extraido.split("\n"):
-            # Si la línea contiene COP, saldo, o palabras de apuestas, se descarta esa línea
             if any(palabra in line.upper() for palabra in ["COP", "SALDO", "APUESTA", "GANANCIA", "HISTORIAL"]):
                 continue
             lineas_limpias.append(line)
         texto_filtrado = "\n".join(lineas_limpias)
 
-        # Buscar multiplicadores que terminen en 'x' o que tengan formato decimal
         matches = re.findall(r"(\d+[\.,]\d{1,2})\s*x?", texto_filtrado)
         
         multiplicadores = []
         for m in matches:
             try:
                 val = float(m.replace(",", "."))
-                # Filtro estricto: un multiplicador de Aviator está entre 1.00x y 999.00x
-                # Se excluyen explícitamente 50.00 exacto si no viene de una 'x' real o valores típicos de saldo
                 if 1.00 <= val <= 999.0:
                     if val in [50.0, 500.0, 1500.0, 5000.0, 10000.0, 50000.0]:
                         continue
@@ -377,7 +372,6 @@ with tabs[2]:
             r2_anterior = multiplicadores[1] if len(multiplicadores) >= 2 else None
             r3_antepasada = multiplicadores[2] if len(multiplicadores) >= 3 else None
 
-            # Contar cuántos azules consecutivos venían antes de la ronda actual
             azules_previos = 0
             for x in multiplicadores[1:]:
                 if x < 2.00:
@@ -402,12 +396,9 @@ with tabs[2]:
             actual_es_pos = r1_actual >= 2.00
             ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
 
-            # 1. Racha confirmada continua (+ y +)
             if actual_es_pos and ant_es_pos:
                 st.success(f"🟢 LUZ VERDE CONFIRMADA: Racha Positiva Sólida (+ / +)")
                 st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y confirmó al anterior (**+{r2_anterior:.2f}x**). La racha ya rompió cualquier trampa. **Entra con la Doble Apuesta 3:1.**")
-
-            # 2. Primer morado tras fase fría -> FILTRO ANTI-TRAMPA
             elif actual_es_pos and not ant_es_pos:
                 if azules_previos >= 3:
                     st.error(f"🛑 TRAMPA DE ABSORCIÓN DETECTADA: Morado Aislado tras {azules_previos} Azules (+{r1_actual:.2f}x)")
@@ -418,8 +409,6 @@ with tabs[2]:
                 else:
                     st.warning(f"🟡 PRECAUCIÓN: Morado Débil (+{r1_actual:.2f}x)")
                     st.write(f"**Estrategia:** El multiplicador apenas superó 2.00x (**+{r1_actual:.2f}x**). Riesgo elevado de falso quiebre. Espera 1 tiro de confirmación.")
-
-            # 3. Freno de emergencia al caer en azul tras un morado
             elif not actual_es_pos and ant_es_pos:
                 if r1_actual >= 1.50:
                     st.warning(f"⚠️ FRENO DE EMERGENCIA: Azul Amortiguado (-{r1_actual:.2f}x)")
@@ -427,8 +416,6 @@ with tabs[2]:
                 else:
                     st.error(f"🔴 BLOQUEO TOTAL: Falso Quiebre Confirmado (-{r1_actual:.2f}x)")
                     st.write(f"**Estrategia:** El morado anterior fue una trampa y cayó inmediatamente a corte bajo. **Detén la operativa en seco** para evitar absorber pérdidas.")
-
-            # 4. Fase fría prolongada (- y -)
             elif not actual_es_pos and not ant_es_pos:
                 st.error(f"🔴 MANTENERSE QUIETO: Fase Fría Activa (- / -)")
                 st.write(f"**Estrategia:** El algoritmo está en absorción activa (**-{r1_actual:.2f}x** y **-{r2_anterior:.2f}x**). No pongas apuestas.")
@@ -486,4 +473,9 @@ with tabs[3]:
                 if estrategia == "Martingala (Doblar tras fallo)":
                     apuesta_actual = monto_a_jugar * 2.0
                 elif estrategia == "Porcentaje Fijo de Banca (Compounding)":
-                    apuesta_actual = banca_actual * (riesgo_pct / 1
+                    apuesta_actual = banca_actual * (riesgo_pct / 100)
+                    
+            registro.append(banca_actual)
+            
+        st.line_chart(pd.DataFrame({"Balance": registro}))
+        st.write(f"Resultado final: **${banca_actual:,.2f}**")
