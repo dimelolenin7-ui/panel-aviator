@@ -33,7 +33,7 @@ apuesta_sug_simple = st.session_state.balance * (riesgo_pct / 100)
 tabs = st.tabs([
     "🟢 Apuesta Simple", 
     "🛡️ Doble Apuesta (Estrategia 3:1)", 
-    "📷 Escáner y Semáforos", 
+    "📷 Escáner y Patrones", 
     "🧪 Monte Carlo"
 ])
 
@@ -108,9 +108,8 @@ with tabs[0]:
 # ==========================================
 with tabs[1]:
     st.title("🛡️ Estrategia Doble Apuesta 3:1 (Ganancia Asegurada)")
-    st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**. Puedes modificar los montos manualmente según el saldo disponible.")
+    st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**. Puedes modificar los montos manualmente.")
 
-    # Cálculo automático proporcional 3:1 por defecto (3/4 y 1/4)
     apuesta_doble_total = st.session_state.balance * (riesgo_pct / 100)
     sug_c1 = round((apuesta_doble_total * 0.75), 2)
     sug_c2 = round((apuesta_doble_total * 0.25), 2)
@@ -128,7 +127,6 @@ with tabs[1]:
         monto_c2 = st.number_input("Casilla 2 - Multiplicador ($ COP):", value=float(sug_c2 if sug_c2 > 0 else 500.0), step=100.0)
         auto_cash_c2 = st.number_input("Auto Cash-out Casilla 2 (x):", value=2.00, step=0.05)
 
-    # Cálculo de ganancias proyectadas
     ganancia_c1_sola = (monto_c1 * (auto_cash_c1 - 1.0)) - monto_c2
     ganancia_ambas = (monto_c1 * (auto_cash_c1 - 1.0)) + (monto_c2 * (auto_cash_c2 - 1.0))
     perdida_total = monto_c1 + monto_c2
@@ -166,11 +164,11 @@ with tabs[1]:
         st.line_chart(pd.DataFrame({"Balance": st.session_state.historial_balance}))
 
 # ==========================================
-# PESTAÑA 3: ESCÁNER Y SEMÁFOROS
+# PESTAÑA 3: ESCÁNER Y DETECTOR DE PATRONES
 # ==========================================
 with tabs[2]:
-    st.subheader("📷 Semáforos de Entrada Inteligentes")
-    st.write("Sube la captura recortada del historial de Aviator para evaluar las condiciones de entrada.")
+    st.subheader("📷 Escáner y Detector de Patrones de Racha")
+    st.write("Sube la captura del historial de Aviator para clasificar la secuencia (morados vs azules).")
     
     uploaded_file = st.file_uploader("Subir captura del historial", type=["png", "jpg", "jpeg"])
     
@@ -198,39 +196,60 @@ with tabs[2]:
             exitos_200 = sum(1 for x in multiplicadores if x >= 2.00)
             tasa_200 = (exitos_200 / total_rondas) * 100
             
-            ultimos_3 = multiplicadores[-3:] if len(multiplicadores) >= 3 else multiplicadores
-            crashes_ultimos_3 = sum(1 for x in ultimos_3 if x < 1.40)
-            crashes_150_ultimos_3 = sum(1 for x in ultimos_3 if x < 1.50)
-
-            st.markdown("---")
-            col_sem1, col_sem2 = st.columns(2)
+            # Clasificación de colores: M = Morado (>= 2.0x), A = Azul (< 2.0x)
+            etiquetas = ["🟣 M" if x >= 2.00 else "🔵 A" for x in multiplicadores]
             
-            with col_sem1:
-                st.markdown("#### 🎯 Para Apuesta Simple (1.40x)")
-                if crashes_ultimos_3 >= 2 or tasa_140 < 65.0:
-                    st.error("🔴 NO APOSTAR (Alto Riesgo)")
-                    st.caption("Cortes rápidos inmediatos detectados.")
-                else:
-                    st.success("🟢 LUZ VERDE SIMPLE")
-                    st.caption(f"Frecuencia > 1.40x: {tasa_140:.1f}%. Flujo estable.")
-
-            with col_sem2:
-                st.markdown("#### 🛡️ Para Doble Apuesta (1.50x / 2.00x)")
-                if crashes_150_ultimos_3 >= 2 or tasa_150 < 60.0:
-                    st.error("🔴 ESPERAR PARA DOBLE APUESTA")
-                    st.caption("Racha fría con caídas antes de 1.50x. Espera 1 o 2 rondas neutras.")
-                else:
-                    st.success("🟢 LUZ VERDE DOBLE APUESTA")
-                    st.caption(f"Frecuencia > 1.50x: {tasa_150:.1f}% | Frecuencia > 2.00x: {tasa_200:.1f}%.")
+            # Tomar los últimos 6 tiros para análisis de secuencias
+            n_analisis = min(6, total_rondas)
+            ultimos_valores = multiplicadores[-n_analisis:]
+            ultimas_etiquetas = etiquetas[-n_analisis:]
+            
+            st.markdown("### 🧩 Análisis de Patrón Reciente")
+            st.write(f"**Secuencia leída (más antiguo → más reciente):** {' ➔ '.join(ultimas_etiquetas)}")
+            
+            # EVALUACIÓN DE ESTRATEGIA DE PATRONES
+            ultimo = multiplicadores[-1]
+            penultimo = multiplicadores[-2] if len(multiplicadores) >= 2 else None
+            antepenultimo = multiplicadores[-3] if len(multiplicadores) >= 3 else None
+            
+            # 1. Racha morada consecutiva confirmada (2 o más seguidos)
+            if ultimo >= 2.00 and penultimo is not None and penultimo >= 2.00:
+                st.success("🟢 SEÑAL DE ENTRADA: Racha Morada Confirmada (M + M)")
+                st.write("**Estrategia:** Se ha formado el patrón de continuación morada. Momento óptimo para la doble apuesta 3:1 (1.50x y 2.00x).")
+                
+            # 2. Morado aislado recién salido tras un azul
+            elif ultimo >= 2.00 and (penultimo is None or penultimo < 2.00):
+                st.warning("🟡 ESPERAR CONFIRMACIÓN: Morado Aislado")
+                st.write("**Estrategia:** Acaba de salir el primer morado. No entres a ciegas: espera 1 ronda para ver si confirma el segundo morado consecutivo.")
+                
+            # 3. Ruptura tras racha larga (primer azul tras 3 o más morados)
+            elif ultimo < 2.00 and penultimo is not None and penultimo >= 2.00 and antepenultimo is not None and antepenultimo >= 2.00:
+                st.error("🔴 BLOQUEO POR RUPTURA: Fin de Racha Morada Larga")
+                st.write("**Estrategia:** Cayó el primer azul tras una seguidilla morada. Alto riesgo de que inicie la racha de absorción (varios azules seguidos). No apostar.")
+                
+            # 4. Alternancia detectada (Morado - Azul - Morado - Azul)
+            elif (len(multiplicadores) >= 4 and 
+                  ((multiplicadores[-1] < 2.0 and multiplicadores[-2] >= 2.0 and multiplicadores[-3] < 2.0 and multiplicadores[-4] >= 2.0) or
+                   (multiplicadores[-1] >= 2.0 and multiplicadores[-2] < 2.0 and multiplicadores[-3] >= 2.0 and multiplicadores[-4] < 2.0))):
+                st.info("⚠️ PATRÓN DE ALTERNANCIA (Ping-Pong: 1 Morado / 1 Azul)")
+                st.write("**Estrategia:** El juego está alternando uno a uno. Si vas a entrar, usa solo Apuesta Simple a 1.40x. Evita la doble apuesta hasta que rompa el ciclo.")
+                
+            # 5. Racha fría activa (2 o más azules seguidos)
+            elif ultimo < 2.00 and penultimo is not None and penultimo < 2.00:
+                st.error("🔴 RACHA FRÍA ACTIVA: Azules Consecutivos (A + A)")
+                st.write("**Estrategia:** El avión está cortando antes de 2.00x. Pausa las apuestas hasta que vuelva a salir un multiplicador morado.")
+                
+            else:
+                st.info("⚪ PATRÓN EN FORMACIÓN: Entorno dentro del promedio sin racha definida.")
 
             st.markdown("---")
             col_m1, col_m2, col_m3 = st.columns(3)
             col_m1.metric("Frecuencia > 1.40x", f"{tasa_140:.1f}%")
             col_m2.metric("Frecuencia > 1.50x", f"{tasa_150:.1f}%")
-            col_m3.metric("Frecuencia > 2.00x", f"{tasa_200:.1f}%")
+            col_m3.metric("Frecuencia > 2.00x (Morados)", f"{tasa_200:.1f}%")
             st.caption(f"Valores leídos: {multiplicadores}")
         else:
-            st.warning("No se detectaron multiplicadores legibles. Recorta solo la franja superior.")
+            st.warning("No se detectaron multiplicadores legibles. Recorta solo la franja superior de números.")
 
 # ==========================================
 # PESTAÑA 4: MONTE CARLO
@@ -277,3 +296,4 @@ with tabs[3]:
             
         st.line_chart(pd.DataFrame({"Balance": registro}))
         st.write(f"Resultado final: **${banca_actual:,.2f}**")
+        
