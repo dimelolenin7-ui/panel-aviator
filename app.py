@@ -114,7 +114,7 @@ if not st.session_state.logged_user:
             AEROMETRICS <span style="color: #ff0055;">PRO</span>
         </h1>
         <p style="color: #94a3b8; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 5px;">
-            Terminal Cuantitativa & Motor de Cobertura
+            Terminal Cuantitativa & Motor Anti-Trampa
         </p>
     </div>
     """
@@ -360,6 +360,14 @@ with tabs[2]:
             r2_anterior = multiplicadores[1] if len(multiplicadores) >= 2 else None
             r3_antepasada = multiplicadores[2] if len(multiplicadores) >= 3 else None
 
+            # Contar cuántos azules consecutivos venían antes de la ronda actual
+            azules_previos = 0
+            for x in multiplicadores[1:]:
+                if x < 2.00:
+                    azules_previos += 1
+                else:
+                    break
+
             muestra_reciente = multiplicadores[:min(6, len(multiplicadores))]
             muestra_cronologica = list(reversed(muestra_reciente))
             
@@ -377,35 +385,36 @@ with tabs[2]:
             actual_es_pos = r1_actual >= 2.00
             ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
 
-            # ESTRATEGIA CON FILTRO DE CALIDAD Y FRENO DE EMERGENCIA
-            
             # 1. Racha confirmada continua (+ y +)
             if actual_es_pos and ant_es_pos:
-                st.success(f"🟢 LUZ VERDE ACTIVA: Continuación de Racha (+ / +)")
-                st.write(f"**Diagnóstico:** Dos o más positivos consecutivos (**+{r1_actual:.2f}x** y **+{r2_anterior:.2f}x**). La racha sigue viva. Entra con Doble Apuesta 3:1.")
+                st.success(f"🟢 LUZ VERDE CONFIRMADA: Racha Positiva Sólida (+ / +)")
+                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y confirmó al anterior (**+{r2_anterior:.2f}x**). La racha ya rompió cualquier trampa. **Entra con la Doble Apuesta 3:1.**")
 
-            # 2. Primer morado tras fase fría -> Evaluamos si es Fuerte o Débil
+            # 2. Primer morado tras fase fría -> FILTRO ANTI-TRAMPA
             elif actual_es_pos and not ant_es_pos:
-                if r1_actual >= 2.50:
-                    st.success(f"🟢 ENTRADA DIRECTA: Quiebre Fuerte Detectado (+{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** El quiebre superó 2.50x (**+{r1_actual:.2f}x**), mostrando volumen alcista. **Entra inmediatamente con Doble Apuesta 3:1** buscando la extensión.")
+                if azules_previos >= 3:
+                    st.error(f"🛑 TRAMPA DE ABSORCIÓN DETECTADA: Morado Aislado tras {azules_previos} Azules (+{r1_actual:.2f}x)")
+                    st.write(f"**Estrategia:** Venía un bloque denso de absorción ({azules_previos} caídas seguidas). Históricamente este primer morado suele ser un rebote en falso que regresa a azul inmediatamente. **NO APOSTAR:** Espera obligatoriamente a que confirme un segundo morado consecutivo.")
+                elif r1_actual >= 2.50:
+                    st.success(f"🟢 ENTRADA MODERADA: Quiebre Fuerte (+{r1_actual:.2f}x)")
+                    st.write(f"**Estrategia:** La fase fría previa fue corta ({azules_previos} azules) y el quiebre superó 2.50x. Hay probabilidad de continuación. **Entra con Doble Apuesta 3:1.**")
                 else:
                     st.warning(f"🟡 PRECAUCIÓN: Morado Débil (+{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** El multiplicador apenas superó 2.00x (**+{r1_actual:.2f}x**). Alto riesgo de falso quiebre. **Espera una ronda más** para confirmar que no regrese a azul.")
+                    st.write(f"**Estrategia:** El multiplicador apenas superó 2.00x (**+{r1_actual:.2f}x**). Riesgo elevado de falso quiebre. Espera 1 tiro de confirmación.")
 
-            # 3. El tiro actual cayó en azul tras un morado (Freno Inmediato / One-shot)
+            # 3. Freno de emergencia al caer en azul tras un morado
             elif not actual_es_pos and ant_es_pos:
                 if r1_actual >= 1.50:
                     st.warning(f"⚠️ FRENO DE EMERGENCIA: Azul Amortiguado (-{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** El tiro cayó en **{r1_actual:.2f}x**. La Casilla 1 cobró y salvó la ronda con saldo a favor (+250 COP), pero la racha morada se cortó. **Suspende las apuestas de inmediato** para no entrar a la absorción.")
+                    st.write(f"**Estrategia:** La Casilla 1 cobró y protegió el capital (+250 COP), pero el flujo positivo se cortó. **Suspende inmediatamente las apuestas.**")
                 else:
-                    st.error(f"🔴 BLOQUEO POR FALSO QUIEBRE: Corte Frío (-{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** Corte duro por debajo de 1.50x tras un solo morado. Peligro de seguidilla de 1.00x - 1.20x. **Detención total de apuestas.**")
+                    st.error(f"🔴 BLOQUEO TOTAL: Falso Quiebre Confirmado (-{r1_actual:.2f}x)")
+                    st.write(f"**Estrategia:** El morado anterior fue una trampa y cayó inmediatamente a corte bajo. **Detén la operativa en seco** para evitar absorber pérdidas.")
 
             # 4. Fase fría prolongada (- y -)
             elif not actual_es_pos and not ant_es_pos:
                 st.error(f"🔴 MANTENERSE QUIETO: Fase Fría Activa (- / -)")
-                st.write(f"**Estrategia:** El casino está absorbiendo (**-{r1_actual:.2f}x** y **-{r2_anterior:.2f}x**). Mantén la banca completamente quieta hasta ver el próximo morado fuerte.")
+                st.write(f"**Estrategia:** El algoritmo está en absorción activa (**-{r1_actual:.2f}x** y **-{r2_anterior:.2f}x**). No pongas apuestas.")
 
             st.markdown("---")
             total_r = len(multiplicadores)
