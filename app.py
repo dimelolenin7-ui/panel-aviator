@@ -2,27 +2,168 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import re
+import sqlite3
+import json
+import hashlib
 from PIL import Image
 import pytesseract
 
 st.set_page_config(page_title="Analítica Cuantitativa & Simulación - Aviator", layout="wide")
 
-# Inicialización de variables
-if 'balance' not in st.session_state:
-    st.session_state.balance = 50000.0
-if 'historial_balance' not in st.session_state:
-    st.session_state.historial_balance = [50000.0]
+# ==========================================
+# GESTIÓN DE BASE DE DATOS Y ENCRIPTACIÓN
+# ==========================================
+DB_FILE = "aviator_data.db"
 
-# Barra lateral de configuración
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def check_hashes(password, hashed_text):
+    return make_hashes(password) == hashed_text
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios (
+            username TEXT PRIMARY KEY,
+            email TEXT,
+            password TEXT,
+            balance REAL,
+            banca_inicial REAL,
+            historial_balance TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def registrar_usuario(username, email, password):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute('''
+            INSERT INTO usuarios (username, email, password, balance, banca_inicial, historial_balance)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (username, email, make_hashes(password), 50000.0, 50000.0, json.dumps([50000.0])))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+def autenticar_usuario(identificador, password):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # Permite ingresar tanto con el nombre de usuario como con el correo Gmail
+    c.execute('''
+        SELECT username, password, balance, banca_inicial, historial_balance 
+        FROM usuarios 
+        WHERE username = ? OR email = ?
+    ''', (identificador, identificador))
+    data = c.fetchone()
+    conn.close()
+    if data and check_hashes(password, data[1]):
+        return {
+            "username": data[0],
+            "balance": data[2],
+            "banca_inicial": data[3],
+            "historial_balance": json.loads(data[4])
+        }
+    return None
+
+def guardar_datos_usuario(username, balance, banca_inicial, historial):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        UPDATE usuarios 
+        SET balance = ?, banca_inicial = ?, historial_balance = ?
+        WHERE username = ?
+    ''', (balance, banca_inicial, json.dumps(historial), username))
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# ==========================================
+# PANTALLA DE ACCESO (LOGIN / REGISTRO)
+# ==========================================
+if 'logged_user' not in st.session_state:
+    st.session_state.logged_user = None
+
+if not st.session_state.logged_user:
+    st.title("✈️ Sistema Cuantitativo Aviator")
+    st.caption("Inicia sesión o crea una cuenta para guardar permanentemente tu balance y registros.")
+
+    tab_login, tab_registro = st.tabs(["🔑 Iniciar Sesión", "📝 Crear Cuenta"])
+
+    with tab_login:
+        identificador = st.text_input("Correo electrónico o Usuario:", key="login_id")
+        password_login = st.text_input("Contraseña:", type="password", key="login_pass")
+        
+        if st.button("Ingresar", use_container_width=True):
+            if identificador and password_login:
+                usuario_data = autenticar_usuario(identificador.strip().lower(), password_login)
+                if usuario_data:
+                    st.session_state.logged_user = usuario_data["username"]
+                    st.session_state.balance = usuario_data["balance"]
+                    st.session_state.banca_inicial = usuario_data["banca_inicial"]
+                    st.session_state.historial_balance = usuario_data["historial_balance"]
+                    st.success("Acceso concedido.")
+                    st.rerun()
+                else:
+                    st.error("Correo, usuario o contraseña incorrectos.")
+            else:
+                st.warning("Completa todos los campos.")
+
+    with tab_registro:
+        nuevo_email = st.text_input("Correo electrónico (ej: usuario@gmail.com):", key="reg_email")
+        nuevo_usuario = st.text_input("Nombre de usuario:", key="reg_user")
+        nuevo_pass = st.text_input("Crea una contraseña:", type="password", key="reg_pass")
+        nuevo_pass_conf = st.text_input("Confirma tu contraseña:", type="password", key="reg_pass_conf")
+        
+        if st.button("Registrarme", use_container_width=True):
+            if nuevo_email and nuevo_usuario and nuevo_pass:
+                if nuevo_pass != nuevo_pass_conf:
+                    st.error("Las contraseñas no coinciden.")
+                elif len(nuevo_pass) < 4:
+                    st.error("La contraseña debe tener al menos 4 caracteres.")
+                else:
+                    exito = registrar_usuario(nuevo_usuario.strip().lower(), nuevo_email.strip().lower(), nuevo_pass)
+                    if exito:
+                        st.success("¡Cuenta creada exitosamente! Ahora ve a la pestaña 'Iniciar Sesión' para ingresar.")
+                    else:
+                        st.error("Ese nombre de usuario ya existe. Por favor elige otro.")
+            else:
+                st.warning("Completa todos los campos obligatorios.")
+
+    st.stop()
+
+# ==========================================
+# USUARIO AUTENTICADO - BARRA LATERAL
+# ==========================================
+username = st.session_state.logged_user
+st.sidebar.header("👤 Perfil Activo")
+st.sidebar.success(f"Usuario: **{username}**")
+
+if st.sidebar.button("Cerrar Sesión"):
+    st.session_state.logged_user = None
+    st.rerun()
+
+st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Configuración de Parámetros")
-banca_inicial = st.sidebar.number_input("Banca Inicial ($ / COP):", value=50000.0, step=1000.0)
+
+banca_inicial_guardada = getattr(st.session_state, 'banca_inicial', 50000.0)
+banca_inicial = st.sidebar.number_input("Banca Inicial ($ COP):", value=float(banca_inicial_guardada), step=1000.0)
 riesgo_pct = st.sidebar.slider("Riesgo total por ronda (%):", min_value=0.5, max_value=6.0, value=4.0, step=0.1)
 stop_loss_pct = st.sidebar.slider("Stop Loss (% pérdida):", min_value=5, max_value=50, value=20)
 take_profit_pct = st.sidebar.slider("Take Profit (% ganancia):", min_value=10, max_value=100, value=25)
 
-if st.sidebar.button("Reiniciar Banca"):
+if st.sidebar.button("🔄 Reiniciar Banca al Inicial"):
     st.session_state.balance = float(banca_inicial)
+    st.session_state.banca_inicial = float(banca_inicial)
     st.session_state.historial_balance = [float(banca_inicial)]
+    guardar_datos_usuario(username, float(banca_inicial), float(banca_inicial), [float(banca_inicial)])
     st.rerun()
 
 piso_sl = banca_inicial * (1 - stop_loss_pct / 100)
@@ -44,7 +185,7 @@ with tabs[0]:
     
     col1, col2 = st.columns(2)
     with col1:
-        st.caption("Banca Actual")
+        st.caption("Banca Actual (Guardada)")
         dif_pct = ((st.session_state.balance - banca_inicial) / banca_inicial) * 100
         st.subheader(f"${st.session_state.balance:,.2f}")
         st.markdown(f"<span style='color: {'#00cc96' if dif_pct >= 0 else '#ff4b4b'}; font-weight: bold;'>{'↑' if dif_pct >= 0 else '↓'} {dif_pct:+.2f}%</span>", unsafe_allow_html=True)
@@ -90,6 +231,7 @@ with tabs[0]:
         if st.button("✅ Ganada", use_container_width=True, key="btn_gana_simple"):
             st.session_state.balance += apuesta_real * (objetivo_x - 1.0)
             st.session_state.historial_balance.append(st.session_state.balance)
+            guardar_datos_usuario(username, st.session_state.balance, banca_inicial, st.session_state.historial_balance)
             st.rerun()
     with col_reg3:
         st.write("")
@@ -97,6 +239,7 @@ with tabs[0]:
         if st.button("❌ Perdida", use_container_width=True, key="btn_pierde_simple"):
             st.session_state.balance -= apuesta_real
             st.session_state.historial_balance.append(st.session_state.balance)
+            guardar_datos_usuario(username, st.session_state.balance, banca_inicial, st.session_state.historial_balance)
             st.rerun()
 
     if len(st.session_state.historial_balance) > 1:
@@ -107,7 +250,7 @@ with tabs[0]:
 # ==========================================
 with tabs[1]:
     st.title("🛡️ Estrategia Doble Apuesta 3:1 (Ganancia Asegurada)")
-    st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**. Puedes modificar los montos manualmente.")
+    st.write("Configuración recomendada: Casilla 1 en **1.50x** y Casilla 2 en **2.00x**.")
 
     apuesta_doble_total = st.session_state.balance * (riesgo_pct / 100)
     sug_c1 = round((apuesta_doble_total * 0.75), 2)
@@ -143,18 +286,21 @@ with tabs[1]:
         if st.button(f"🏆 Superó {auto_cash_c2:.2f}x (Ambas)", use_container_width=True):
             st.session_state.balance += ganancia_ambas
             st.session_state.historial_balance.append(st.session_state.balance)
+            guardar_datos_usuario(username, st.session_state.balance, banca_inicial, st.session_state.historial_balance)
             st.rerun()
             
     with col_b2:
         if st.button(f"🛡️ Entre {auto_cash_c1:.2f}x y {auto_cash_c2:.2f}x", use_container_width=True):
             st.session_state.balance += ganancia_c1_sola
             st.session_state.historial_balance.append(st.session_state.balance)
+            guardar_datos_usuario(username, st.session_state.balance, banca_inicial, st.session_state.historial_balance)
             st.rerun()
             
     with col_b3:
         if st.button(f"💥 Menor a {auto_cash_c1:.2f}x (Pérdida)", use_container_width=True):
             st.session_state.balance -= perdida_total
             st.session_state.historial_balance.append(st.session_state.balance)
+            guardar_datos_usuario(username, st.session_state.balance, banca_inicial, st.session_state.historial_balance)
             st.rerun()
 
     if len(st.session_state.historial_balance) > 1:
@@ -166,7 +312,7 @@ with tabs[1]:
 # ==========================================
 with tabs[2]:
     st.subheader("📷 Escáner y Detector de Patrones (Positivo / Negativo)")
-    st.write("Sube la captura de la ventana de historial. El sistema detecta el primer número superior como el tiro más reciente.")
+    st.write("Sube la captura de la ventana de historial. El sistema detecta el primer número superior izquierdo como el tiro más reciente.")
     
     uploaded_file = st.file_uploader("Subir captura del historial", type=["png", "jpg", "jpeg"])
     
@@ -184,14 +330,10 @@ with tabs[2]:
                 multiplicadores.append(val)
         
         if multiplicadores:
-            # En la captura de pantalla de Aviator, el primer elemento arriba a la izquierda es el más reciente.
-            # R1: más reciente, R2: anterior, R3: antepasada
             r1_actual = multiplicadores[0]
             r2_anterior = multiplicadores[1] if len(multiplicadores) >= 2 else None
             r3_antepasada = multiplicadores[2] if len(multiplicadores) >= 3 else None
-            r4_tras_antepasada = multiplicadores[3] if len(multiplicadores) >= 4 else None
 
-            # Clasificación de los últimos 6 tiros en orden cronológico (del pasado al presente)
             muestra_reciente = multiplicadores[:min(6, len(multiplicadores))]
             muestra_cronologica = list(reversed(muestra_reciente))
             
@@ -206,36 +348,25 @@ with tabs[2]:
             
             st.markdown("---")
             
-            # EVALUACIÓN DE REGLAS SEGÚN TU ESTRATEGIA:
-            # Positivo: >= 2.00x | Negativo: < 2.00x
             actual_es_pos = r1_actual >= 2.00
             ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
             antepas_es_pos = (r3_antepasada is not None) and (r3_antepasada >= 2.00)
 
-            # Caso 1: Racha Positiva Confirmada (+ y + seguidos)
             if actual_es_pos and ant_es_pos:
                 st.success(f"🟢 ENTRADA RECOMENDADA: Racha Positiva Confirmada (+ / +)")
-                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y el anterior **+{r2_anterior:.2f}x**. Se confirmó el flujo morado. Momento propicio para la Doble Apuesta 3:1.")
-            
-            # Caso 2: Positivo aislado tras negativo (+ recién salido tras -)
+                st.write(f"**Diagnóstico:** Tiro actual **+{r1_actual:.2f}x** y anterior **+{r2_anterior:.2f}x**. Se confirmó el flujo morado. Momento propicio para Doble Apuesta 3:1.")
             elif actual_es_pos and not ant_es_pos:
                 st.warning(f"🟡 ESPERAR CONFIRMACIÓN: Positivo Aislado (+ tras -)")
-                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x**, pero venía de un azul (**-{r2_anterior:.2f}x**). No entres a ciegas: espera la siguiente ronda para ver si confirma un segundo positivo consecutivo.")
-            
-            # Caso 3: Ruptura tras racha positiva (- tras varios +)
+                st.write(f"**Diagnóstico:** Tiro actual **+{r1_actual:.2f}x**, pero venía de un azul (**-{r2_anterior:.2f}x**). Espera 1 ronda a que confirme un segundo positivo.")
             elif not actual_es_pos and ant_es_pos and antepas_es_pos:
                 st.error(f"🔴 BLOQUEO POR RUPTURA: Fin de Racha Morada")
-                st.write(f"**Diagnóstico:** Cayó el primer corte bajo (**-{r1_actual:.2f}x**) tras racha de positivos. Alto riesgo de que comience una racha de absorción/azules. No apostar.")
-            
-            # Caso 4: Racha Negativa Activa (- y - seguidos)
+                st.write(f"**Diagnóstico:** Primer corte bajo (**-{r1_actual:.2f}x**) tras racha positiva. Alto riesgo de absorción/azules. No apostar.")
             elif not actual_es_pos and not ant_es_pos:
                 st.error(f"🔴 RACHA NEGATIVA ACTIVA: Azules Consecutivos (- / -)")
-                st.write(f"**Diagnóstico:** Tanto el tiro actual (**-{r1_actual:.2f}x**) como el anterior (**-{r2_anterior:.2f}x**) fueron cortes fríos. Mantén la banca quieta hasta que rompa con un morado y se confirme.")
-            
-            # Caso 5: Alternancia / Rebote simple
+                st.write(f"**Diagnóstico:** Actual (**-{r1_actual:.2f}x**) y anterior (**-{r2_anterior:.2f}x**) fueron cortes fríos. Mantén la banca quieta.")
             else:
                 st.info(f"⚪ ENTORNO NEUTRO / ALTERNANCIA (Último: {r1_actual:.2f}x)")
-                st.write("**Diagnóstico:** Flujo en transición. Si decides jugar, utiliza únicamente Apuesta Simple a 1.40x.")
+                st.write("**Diagnóstico:** Flujo en transición. Si decides jugar, usa solo Apuesta Simple a 1.40x.")
 
             st.markdown("---")
             total_r = len(multiplicadores)
