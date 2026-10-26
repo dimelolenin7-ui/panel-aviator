@@ -338,7 +338,7 @@ with tabs[1]:
 # ==========================================
 with tabs[2]:
     st.subheader("📷 Escáner y Detector de Patrones (Filtro Anti-Trampa)")
-    st.write("Sube la captura de la ventana de historial. El sistema detecta el primer número superior izquierdo como la última ronda jugada.")
+    st.write("Sube la captura de la ventana de historial. El sistema reconoce la lectura natural de Aviator: arriba a la izquierda es la ronda actual.")
     
     uploaded_file = st.file_uploader("Subir captura del historial", type=["png", "jpg", "jpeg"])
     
@@ -368,27 +368,27 @@ with tabs[2]:
                 continue
         
         if multiplicadores:
+            # En la ventana de Aviator:
+            # multiplicadores[0] es el primer tiro (arriba a la izquierda) = Ronda Actual
+            # multiplicadores[1] es el siguiente hacia la derecha = Ronda Anterior
             r1_actual = multiplicadores[0]
             r2_anterior = multiplicadores[1] if len(multiplicadores) >= 2 else None
             r3_antepasada = multiplicadores[2] if len(multiplicadores) >= 3 else None
 
-            azules_previos = 0
-            for x in multiplicadores[1:]:
-                if x < 2.00:
-                    azules_previos += 1
-                else:
-                    break
+            # Para mostrar la secuencia cronológica: del pasado hacia la ronda actual
+            # Tomamos los tiros recientes (ej: 6) y los ordenamos del más antiguo al más reciente
+            n_muestra = min(6, len(multiplicadores))
+            sub_muestra = multiplicadores[:n_muestra]
+            # Pasado (último del sub_muestra) ➔ Presente (sub_muestra[0])
+            crono_orden = list(reversed(sub_muestra))
 
-            muestra_reciente = multiplicadores[:min(6, len(multiplicadores))]
-            muestra_cronologica = list(reversed(muestra_reciente))
-            
             etiquetas_crono = [
                 f"🟣 +{x:.2f}x" if x >= 2.00 else f"🔵 -{x:.2f}x" 
-                for x in muestra_cronologica
+                for x in crono_orden
             ]
 
             st.markdown("### 🧩 Lectura Cronológica de Secuencia")
-            st.write(f"**Camino recorrido (Pasado ➔ Ronda Actual):**")
+            st.write(f"**Camino recorrido (Pasado ➔ Ronda Actual que acaba de cerrar):**")
             st.subheader(" ➔ ".join(etiquetas_crono))
             
             st.markdown("---")
@@ -396,26 +396,41 @@ with tabs[2]:
             actual_es_pos = r1_actual >= 2.00
             ant_es_pos = (r2_anterior is not None) and (r2_anterior >= 2.00)
 
+            # Contar azules que venían ANTES de la ronda actual
+            azules_previos = 0
+            for x in multiplicadores[1:]:
+                if x < 2.00:
+                    azules_previos += 1
+                else:
+                    break
+
+            # 1. Racha confirmada continua (+ actual y + anterior)
             if actual_es_pos and ant_es_pos:
                 st.success(f"🟢 LUZ VERDE CONFIRMADA: Racha Positiva Sólida (+ / +)")
-                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y confirmó al anterior (**+{r2_anterior:.2f}x**). La racha ya rompió cualquier trampa. **Entra con la Doble Apuesta 3:1.**")
+                st.write(f"**Diagnóstico:** El tiro actual fue **+{r1_actual:.2f}x** y el anterior **+{r2_anterior:.2f}x**. Se confirmó el ciclo morado. **Entra con la Doble Apuesta 3:1.**")
+
+            # 2. Primer morado tras fase fría
             elif actual_es_pos and not ant_es_pos:
                 if azules_previos >= 3:
                     st.error(f"🛑 TRAMPA DE ABSORCIÓN DETECTADA: Morado Aislado tras {azules_previos} Azules (+{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** Venía un bloque denso de absorción ({azules_previos} caídas seguidas). Históricamente este primer morado suele ser un rebote en falso que regresa a azul inmediatamente. **NO APOSTAR:** Espera obligatoriamente a que confirme un segundo morado consecutivo.")
+                    st.write(f"**Estrategia:** Venía un bloque denso de absorción ({azules_previos} caídas seguidas). Este primer morado suele ser un rebote en falso. **NO APOSTAR:** Espera obligatoriamente a que confirme un segundo morado consecutivo.")
                 elif r1_actual >= 2.50:
                     st.success(f"🟢 ENTRADA MODERADA: Quiebre Fuerte (+{r1_actual:.2f}x)")
                     st.write(f"**Estrategia:** La fase fría previa fue corta ({azules_previos} azules) y el quiebre superó 2.50x. Hay probabilidad de continuación. **Entra con Doble Apuesta 3:1.**")
                 else:
                     st.warning(f"🟡 PRECAUCIÓN: Morado Débil (+{r1_actual:.2f}x)")
                     st.write(f"**Estrategia:** El multiplicador apenas superó 2.00x (**+{r1_actual:.2f}x**). Riesgo elevado de falso quiebre. Espera 1 tiro de confirmación.")
+
+            # 3. Freno de emergencia: el tiro actual cortó en azul tras un morado
             elif not actual_es_pos and ant_es_pos:
                 if r1_actual >= 1.50:
                     st.warning(f"⚠️ FRENO DE EMERGENCIA: Azul Amortiguado (-{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** La Casilla 1 cobró y protegió el capital (+250 COP), pero el flujo positivo se cortó. **Suspende inmediatamente las apuestas.**")
+                    st.write(f"**Estrategia:** El tiro actual cayó en **{r1_actual:.2f}x** tras el morado anterior (+{r2_anterior:.2f}x). La Casilla 1 cobró (+250 COP), pero el flujo positivo se cortó. **Suspende inmediatamente las apuestas.**")
                 else:
                     st.error(f"🔴 BLOQUEO TOTAL: Falso Quiebre Confirmado (-{r1_actual:.2f}x)")
-                    st.write(f"**Estrategia:** El morado anterior fue una trampa y cayó inmediatamente a corte bajo. **Detén la operativa en seco** para evitar absorber pérdidas.")
+                    st.write(f"**Estrategia:** El tiro actual cayó en **-{r1_actual:.2f}x** tras el morado anterior (+{r2_anterior:.2f}x). El morado fue una trampa de absorción. **Detén la operativa en seco**.")
+
+            # 4. Fase fría prolongada (- actual y - anterior)
             elif not actual_es_pos and not ant_es_pos:
                 st.error(f"🔴 MANTENERSE QUIETO: Fase Fría Activa (- / -)")
                 st.write(f"**Estrategia:** El algoritmo está en absorción activa (**-{r1_actual:.2f}x** y **-{r2_anterior:.2f}x**). No pongas apuestas.")
