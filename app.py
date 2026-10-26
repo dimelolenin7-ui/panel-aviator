@@ -346,14 +346,31 @@ with tabs[2]:
         image = Image.open(uploaded_file)
         st.image(image, caption="Historial cargado", use_container_width=True)
         
+        # Filtro de texto para evitar que lea el saldo en COP o montos de apuesta
         texto_extraido = pytesseract.image_to_string(image)
-        matches = re.findall(r"(\d+[\.,]\d+)x?", texto_extraido)
+        lineas_limpias = []
+        for line in texto_extraido.split("\n"):
+            # Si la línea contiene COP, saldo, o palabras de apuestas, se descarta esa línea
+            if any(palabra in line.upper() for palabra in ["COP", "SALDO", "APUESTA", "GANANCIA", "HISTORIAL"]):
+                continue
+            lineas_limpias.append(line)
+        texto_filtrado = "\n".join(lineas_limpias)
+
+        # Buscar multiplicadores que terminen en 'x' o que tengan formato decimal
+        matches = re.findall(r"(\d+[\.,]\d{1,2})\s*x?", texto_filtrado)
         
         multiplicadores = []
         for m in matches:
-            val = float(m.replace(",", "."))
-            if 1.0 <= val <= 1000.0:
-                multiplicadores.append(val)
+            try:
+                val = float(m.replace(",", "."))
+                # Filtro estricto: un multiplicador de Aviator está entre 1.00x y 999.00x
+                # Se excluyen explícitamente 50.00 exacto si no viene de una 'x' real o valores típicos de saldo
+                if 1.00 <= val <= 999.0:
+                    if val in [50.0, 500.0, 1500.0, 5000.0, 10000.0, 50000.0]:
+                        continue
+                    multiplicadores.append(val)
+            except ValueError:
+                continue
         
         if multiplicadores:
             r1_actual = multiplicadores[0]
@@ -469,9 +486,4 @@ with tabs[3]:
                 if estrategia == "Martingala (Doblar tras fallo)":
                     apuesta_actual = monto_a_jugar * 2.0
                 elif estrategia == "Porcentaje Fijo de Banca (Compounding)":
-                    apuesta_actual = banca_actual * (riesgo_pct / 100)
-                    
-            registro.append(banca_actual)
-            
-        st.line_chart(pd.DataFrame({"Balance": registro}))
-        st.write(f"Resultado final: **${banca_actual:,.2f}**")
+                    apuesta_actual = banca_actual * (riesgo_pct / 1
